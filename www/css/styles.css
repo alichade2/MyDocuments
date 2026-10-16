@@ -15,16 +15,18 @@
   :root { --primary: #8ab4f8; --on-primary: #0b1f3f; --primary-container: #1d3557; --surface: #26272b; --bg: #131416; --text: #e8e8ea; --muted: #a0a4ab; --outline: #3a3c42; --error: #f2b8b5; }
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; overflow-x: hidden; }
+html, body { margin: 0; height: 100%; overflow: hidden; } /* the page itself never scrolls; .scroller does */
 body {
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   background: var(--bg); color: var(--text); line-height: 1.4;
-  padding-bottom: env(safe-area-inset-bottom);
+  display: flex; flex-direction: column; height: 100vh; height: 100dvh;
 }
+/* Fixed header + independently scrolling content: only .scroller scrolls. */
+.scroller { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding-bottom: env(safe-area-inset-bottom); }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 .app-bar {
-  position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 10px;
+  flex: none; position: relative; z-index: 5; display: flex; align-items: center; gap: 10px;
   background: var(--primary); color: var(--on-primary);
   padding: calc(env(safe-area-inset-top) + 10px) 16px 10px; box-shadow: var(--shadow);
 }

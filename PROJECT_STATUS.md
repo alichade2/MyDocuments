@@ -85,6 +85,14 @@ Dashboard v2 (12 categories + demo data) implemented 2026-10-16; see "Dashboard 
 - Not verified: frame rate/jank on low-end hardware; reduced-motion path on a real device ("Remove animations" mapping to the CSS media query varies by WebView version); rotation mid-transition.
 - Emulator note: disturbing the emulator's camera app left its graphics/camera HAL crashing (black screen) until `adb reboot`; unrelated to MyDocs.
 
+## Fixed header (2026-10-17)
+- Problem: the blue header scrolled away. The header was `position: sticky`, but `html, body { overflow-x: hidden }` turned `body` into a scroll container, which silently disables sticky positioning.
+- Fix: the page never scrolls (`html, body { height: 100%; overflow: hidden }`). `body` is a flex column (`100dvh`): `.app-bar` is `flex: none` (header stays put, keeps its status-bar inset padding) and the new `#scroller` wrapper around `<main>` is `flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain`. Only the categories/documents scroll, underneath the header; nothing renders over it. Bottom inset (`env(safe-area-inset-bottom)`) moved to the scroller's padding.
+- Scroll code ported from `window` to the scroller: `app.js` (save/restore dashboard position, reset on opening a category) and `transitions.js` (collapse restores `scroller.scrollTop`). The category open/close animation is unchanged (its overlay is `position: fixed` below the header).
+- Files changed: `www/index.html`, `www/css/styles.css`, `www/js/app.js`, `www/js/transitions.js`.
+- Verified: browser preview 360px: header top 0 / bottom 56 after scrolling 500px, first card scrolled under it, document not scrollable, no horizontal overflow; open category from scrollTop 300 and back restores 300 and card focus, no leftover animations. Emulator: swiped to the bottom with the header fixed and all 12 cards reachable; opened Identity Documents and pressed Back: identical scroll position restored. `npm test` 34/34. Debug APK builds and installs.
+- Not verified: very fast fling on a physical device; landscape/tablet on device; the header's search field is still a disabled placeholder (no search functionality exists yet).
+
 ## Known issues and blockers
 1. (Resolved) Android SDK/emulator now installed; build with `JAVA_HOME` = JDK 21 and `ANDROID_HOME` set works.
 3. Unverified assumptions to check on device: FilePicker `readData` result, `Filesystem.getUri` path accepted by `FileViewer.openDocumentFromLocalPath`, CapacitorSQLite `isConnection`/transaction calls with `transaction:false`, and `Capacitor.Plugins.<Name>` proxies without a bundler.
@@ -109,6 +117,7 @@ Inspected environment, initialised Capacitor/Android, built dashboard, database 
 ## Change history
 - 2026-10-16: initial implementation (see Git history).
 - 2026-10-16: 12-category dashboard, demo data, schema v2, tests 15 -> 23.
+- 2026-10-17: fixed header with an independent scroll container.
 - 2026-10-17: animated category open/close (container transform), Android Back handling via @capacitor/app.
 - 2026-10-16: camera capture with preview, thumbnails, full-screen viewer, schema v3, tests 27 -> 34.
 - 2026-10-16: upload asks for a document name (shared with rename), tests 23 -> 27.

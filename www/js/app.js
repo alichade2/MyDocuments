@@ -166,10 +166,10 @@ function show(categoryId, { restoreScroll = false } = {}) {
   $('category-view').hidden = !inCategory;
   if (inCategory) {
     renderCategoryView();
-    window.scrollTo(0, 0);
+    $('scroller').scrollTop = 0;
     $('cv-back').focus({ preventScroll: true });
   } else if (restoreScroll) {
-    window.scrollTo(0, view.scrollY);
+    $('scroller').scrollTop = view.scrollY;
   }
 }
 
@@ -187,7 +187,7 @@ async function runTransition(fn) {
 }
 
 const transitionEls = () => ({
-  view: $('category-view'), dashboard: $('dashboard-view'), categories: $('categories'),
+  scroller: $('scroller'), view: $('category-view'), dashboard: $('dashboard-view'), categories: $('categories'),
   appBar: document.querySelector('.app-bar'), main: document.querySelector('main'), banner: $('banner'),
   icon: $('cv-icon'), title: $('cv-title'),
   staggered: [$('cv-back'), $('cv-count'), document.querySelector('.cv-actions'), $('cv-docs')],
@@ -195,7 +195,7 @@ const transitionEls = () => ({
 
 function openCategory(categoryId) {
   if (motion.busy) return; // ignore rapid taps while a transition runs
-  if (view.categoryId == null) view.scrollY = window.scrollY;
+  if (view.categoryId == null) view.scrollY = $('scroller').scrollTop;
   history.pushState({ categoryId }, '');
   if (prefersReducedMotion()) { show(categoryId); return; }
   const card = cards.get(categoryId).cardEl;

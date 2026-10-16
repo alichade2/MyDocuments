@@ -52,10 +52,10 @@ const settled = (anims, limit = 1200) => Promise.race([
 
 /**
  * Dashboard -> category. Expects the category view's content to be rendered already.
- * els: { card, view, dashboard, appBar, main, banner, icon, title, staggered: [elements...] }
+ * els: { card, view, dashboard, scroller, appBar, main, banner, icon, title, staggered: [elements...] }
  */
 export async function expandCategory(els) {
-  const { card, view, dashboard, icon, title, staggered } = els;
+  const { card, view, dashboard, icon, title, staggered, scroller } = els;
   const cardRect = card.getBoundingClientRect();
   const cardIcon = card.querySelector('.category-icon').getBoundingClientRect();
   const cardName = card.querySelector('.cat-name').getBoundingClientRect();
@@ -94,20 +94,20 @@ export async function expandCategory(els) {
   leaveOverlay(view);
   dashboard.hidden = true;
   anims.forEach((a) => a.cancel());
-  window.scrollTo(0, 0);
+  scroller.scrollTop = 0;
 }
 
 /**
  * Category -> dashboard: the view collapses back into the card it came from.
- * els: { card, view, dashboard, categories, appBar, main, banner, restoreScroll }
+ * els: { card, view, dashboard, categories, scroller, appBar, main, banner, restoreScroll }
  */
 export async function collapseCategory(els) {
-  const { card, view, dashboard, categories, restoreScroll } = els;
-  const contentScroll = window.scrollY;
+  const { card, view, dashboard, categories, restoreScroll, scroller } = els;
+  const contentScroll = scroller.scrollTop;
   const top = enterOverlay(view, els);
   view.scrollTop = contentScroll; // keep the category content where the user left it while it shrinks
   dashboard.hidden = false;
-  window.scrollTo(0, restoreScroll); // dashboard comes back exactly as it was; its DOM is never rebuilt
+  scroller.scrollTop = restoreScroll; // dashboard comes back exactly as it was; its DOM is never rebuilt
   const cardRect = card.getBoundingClientRect();
 
   const anims = [
