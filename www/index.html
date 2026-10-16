@@ -10,19 +10,25 @@
 </head>
 <body>
   <header class="app-bar">
+    <svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M6 2h9l5 5v15H6V2Zm8 1.5V8h4.5L14 3.5ZM9 12h8v1.5H9V12Zm0 3h8v1.5H9V15Z"/></svg>
     <h1>MyDocs</h1>
+    <label class="search" title="Search is coming soon">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M15.5 14h-.8l-.3-.3A6.5 6.5 0 1 0 14 15.5l.3.3v.8l5 5 1.5-1.5-5-5Zm-6 0a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9Z"/></svg>
+      <span class="visually-hidden">Search documents</span>
+      <input type="search" placeholder="Search (coming soon)" disabled>
+    </label>
   </header>
 
   <main>
     <section class="welcome">
       <h2>Welcome to MyDocs</h2>
-      <p>Keep your important documents organised and on your device.</p>
+      <p>All your important documents in one place.</p>
     </section>
     <div id="banner" class="banner" role="status" hidden></div>
     <div id="categories"></div>
   </main>
 
-  <div id="toast" class="toast" role="alert" hidden></div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
   <dialog id="rename-dialog">
     <form method="dialog" id="rename-form">

@@ -2,8 +2,10 @@
 // only sees createDatabase(driver) -> { init, all, run, transaction, close }.
 
 export const DB_NAME = 'mydocs';
-export const SCHEMA_VERSION = 1;
-export const DEFAULT_CATEGORIES = ['Personal Documents', 'Educational Documents', 'IDs', 'Work Related Documents'];
+import { CATEGORIES, LEGACY_NAMES, demoDocuments } from './seed.js';
+
+export const SCHEMA_VERSION = 2;
+export const DEFAULT_CATEGORIES = CATEGORIES.map((c) => c.name);
 
 const MIGRATIONS = [
   // v1
@@ -27,7 +29,60 @@ const MIGRATIONS = [
    );
    CREATE INDEX idx_documents_category ON documents(category_id);
    CREATE INDEX idx_documents_name ON documents(name);`,
+  // v2: category slug/icon/sort_order; documents get is_demo + seed_key and nullable file_path/file_size.
+  `ALTER TABLE categories ADD COLUMN slug TEXT;
+   CREATE UNIQUE INDEX idx_categories_slug ON categories(slug);
+   ALTER TABLE categories ADD COLUMN icon TEXT;
+   ALTER TABLE categories ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;
+   CREATE TABLE documents_new (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE RESTRICT,
+     name TEXT NOT NULL CHECK (length(trim(name)) > 0),
+     original_filename TEXT NOT NULL,
+     file_type TEXT NOT NULL,
+     mime_type TEXT,
+     file_path TEXT UNIQUE,
+     file_size INTEGER CHECK (file_size IS NULL OR file_size >= 0),
+     created_at TEXT NOT NULL,
+     updated_at TEXT NOT NULL,
+     expiry_date TEXT,
+     is_demo INTEGER NOT NULL DEFAULT 0 CHECK (is_demo IN (0,1)),
+     seed_key TEXT UNIQUE,
+     CHECK (is_demo = 1 OR file_path IS NOT NULL)
+   );
+   INSERT INTO documents_new (id, category_id, name, original_filename, file_type, mime_type, file_path, file_size, created_at, updated_at, expiry_date)
+     SELECT id, category_id, name, original_filename, file_type, mime_type, file_path, file_size, created_at, updated_at, expiry_date FROM documents;
+   DROP TABLE documents;
+   ALTER TABLE documents_new RENAME TO documents;
+   CREATE INDEX idx_documents_category ON documents(category_id);
+   CREATE INDEX idx_documents_name ON documents(name);`,
 ];
+
+// Categories are upserted by stable slug on every launch (idempotent); v1 rows are adopted by name.
+async function seedCategories(driver) {
+  for (const c of CATEGORIES) {
+    await driver.run('UPDATE categories SET slug = ? WHERE slug IS NULL AND name = ?;', [c.slug, c.name]);
+  }
+  for (const [name, slug] of Object.entries(LEGACY_NAMES)) {
+    await driver.run('UPDATE categories SET slug = ? WHERE slug IS NULL AND name = ?;', [slug, name]);
+  }
+  for (const [i, c] of CATEGORIES.entries()) {
+    await driver.run(
+      `INSERT INTO categories (slug, name, icon, sort_order) VALUES (?,?,?,?)
+       ON CONFLICT(slug) DO UPDATE SET name = excluded.name, icon = excluded.icon, sort_order = excluded.sort_order;`,
+      [c.slug, c.name, c.icon, i + 1]);
+  }
+}
+
+// Demo metadata is inserted once, inside the v2 migration, so documents the user deletes stay deleted.
+async function seedDemoDocuments(driver) {
+  for (const d of demoDocuments()) {
+    await driver.run(
+      `INSERT OR IGNORE INTO documents (category_id, name, original_filename, file_type, mime_type, file_path, file_size, created_at, updated_at, is_demo, seed_key)
+       VALUES ((SELECT id FROM categories WHERE slug = ?), ?, ?, 'pdf', 'application/pdf', NULL, NULL, ?, ?, 1, ?);`,
+      [d.categorySlug, d.name, d.filename, d.ts, d.ts, d.seedKey]);
+  }
+}
 
 export function createDatabase(driver) {
   let ready = null;
@@ -44,13 +99,15 @@ export function createDatabase(driver) {
       const next = version + 1;
       await transaction(async () => {
         await driver.exec(MIGRATIONS[version]);
+        if (next === 2) {
+          await seedCategories(driver);
+          await seedDemoDocuments(driver);
+        }
         await driver.exec(`PRAGMA user_version = ${next};`);
       });
       version = next;
     }
-    for (const name of DEFAULT_CATEGORIES) {
-      await driver.run('INSERT OR IGNORE INTO categories (name) VALUES (?);', [name]);
-    }
+    await seedCategories(driver);
   }
 
   // Transactions are serialised: a single connection must not interleave them.

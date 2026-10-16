@@ -17,6 +17,8 @@ export const SUPPORTED_TYPES = {
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 };
 
+export const DEMO_MESSAGE = 'This is sample document data. Import a real document to preview it.';
+
 export class DocumentError extends Error {
   constructor(code, message) { super(message); this.name = 'DocumentError'; this.code = code; }
 }
@@ -37,7 +39,7 @@ function toRecord(r) {
   return {
     id: r.id, categoryId: r.category_id, name: r.name, originalFilename: r.original_filename,
     fileType: r.file_type, mimeType: r.mime_type, filePath: r.file_path, fileSize: r.file_size,
-    createdAt: r.created_at, updatedAt: r.updated_at, expiryDate: r.expiry_date,
+    createdAt: r.created_at, updatedAt: r.updated_at, expiryDate: r.expiry_date, isDemo: r.is_demo === 1,
   };
 }
 
@@ -61,7 +63,7 @@ export function createDocumentService({ db, storage, picker, viewer, now = () =>
 
   const service = {
     async listCategories() {
-      return db.all('SELECT id, name FROM categories ORDER BY id;');
+      return db.all('SELECT id, slug, name, icon, sort_order FROM categories ORDER BY sort_order, id;');
     },
 
     /** Documents of a category (all when categoryId is omitted); flags records whose file is gone. */
@@ -69,7 +71,7 @@ export function createDocumentService({ db, storage, picker, viewer, now = () =>
       const rows = categoryId == null
         ? await db.all('SELECT * FROM documents ORDER BY name COLLATE NOCASE, id;')
         : await db.all('SELECT * FROM documents WHERE category_id = ? ORDER BY name COLLATE NOCASE, id;', [categoryId]);
-      return Promise.all(rows.map(async (r) => ({ ...toRecord(r), missing: !(await storage.exists(r.file_path)) })));
+      return Promise.all(rows.map(async (r) => ({ ...toRecord(r), missing: r.is_demo !== 1 && !(await storage.exists(r.file_path)) })));
     },
 
     async get(id) { return toRecord(await getRow(id)); },
@@ -114,12 +116,13 @@ export function createDocumentService({ db, storage, picker, viewer, now = () =>
 
     async remove(id) {
       const row = await getRow(id);
-      if (await storage.exists(row.file_path)) await storage.remove(row.file_path); // abort if file cannot be deleted
+      if (row.file_path && await storage.exists(row.file_path)) await storage.remove(row.file_path); // abort if file cannot be deleted
       await db.transaction(() => db.run('DELETE FROM documents WHERE id = ?;', [id]));
     },
 
     async open(id) {
       const row = await getRow(id);
+      if (row.is_demo === 1) throw new DocumentError('DEMO_DOCUMENT', DEMO_MESSAGE);
       if (!(await storage.exists(row.file_path))) throw new DocumentError('FILE_MISSING', 'The file for this document is missing from storage.');
       if (!viewer) throw new DocumentError('NO_VIEWER', 'Previewing is not available on this platform.');
       await viewer.open(await storage.uri(row.file_path), row.mime_type);
@@ -127,7 +130,7 @@ export function createDocumentService({ db, storage, picker, viewer, now = () =>
 
     /** Removes orphan files (e.g. from interrupted imports) and reports records with missing files. */
     async reconcile() {
-      const known = new Set((await db.all('SELECT file_path FROM documents;')).map((r) => r.file_path));
+      const known = new Set((await db.all('SELECT file_path FROM documents WHERE file_path IS NOT NULL;')).map((r) => r.file_path));
       let orphansRemoved = 0;
       for (const f of await storage.list(DOCS_DIR)) {
         const path = `${DOCS_DIR}/${f}`;

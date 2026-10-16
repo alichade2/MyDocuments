@@ -4,7 +4,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { createDatabase, DEFAULT_CATEGORIES, SCHEMA_VERSION } from '../www/js/database.js';
-import { createDocumentService, DocumentError, DOCS_DIR } from '../www/js/documents.js';
+import { createDocumentService, DocumentError, DOCS_DIR, DEMO_MESSAGE } from '../www/js/documents.js';
+import { CATEGORIES } from '../www/js/seed.js';
+import { createMockService } from '../www/js/mock.js';
 
 function nodeDriver(file = ':memory:') {
   const sqlite = new DatabaseSync(file);
@@ -42,6 +44,7 @@ async function setup(opts = {}) {
   const svc = createDocumentService({ db, storage, viewer: { open: async (u) => opened.push(u) }, ...opts });
   return { db, driver, storage, svc, opened };
 }
+const real = async (svc, cat) => (await svc.list(cat)).filter((d) => !d.isDemo);
 const pdf = (name = 'a.pdf', extra = {}) => ({ name, mimeType: 'application/pdf', size: 100, data: 'QUJD', ...extra });
 
 test('database init sets schema version and default categories', async () => {
@@ -54,7 +57,8 @@ test('init is idempotent: no duplicate categories on relaunch', async () => {
   const driver = nodeDriver();
   await createDatabase(driver).init();
   await createDatabase(driver).init();
-  assert.equal(driver.sqlite.prepare('SELECT COUNT(*) c FROM categories').get().c, 4);
+  assert.equal(driver.sqlite.prepare('SELECT COUNT(*) c FROM categories').get().c, 12);
+  assert.equal(driver.sqlite.prepare('SELECT COUNT(*) c FROM documents').get().c, 58);
 });
 
 test('rejects a database from a newer schema', async () => {
@@ -68,9 +72,9 @@ test('import, list, filter by category, empty category', async () => {
   const doc = await svc.importFile(1, pdf('Lease.pdf'));
   assert.equal(doc.name, 'Lease');
   assert.equal(doc.mimeType, 'application/pdf');
-  assert.equal((await svc.list(1)).length, 1);
-  assert.equal((await svc.list(2)).length, 0);
-  assert.equal((await svc.list()).length, 1);
+  assert.equal((await real(svc, 1)).length, 1);
+  assert.equal((await real(svc, 2)).length, 0);
+  assert.equal((await real(svc)).length, 1);
 });
 
 test('duplicate filenames get distinct stored files', async () => {
@@ -97,7 +101,7 @@ test('failed file write leaves no DB record', async () => {
   const { svc, storage } = await setup();
   storage.failWrite = true;
   await assert.rejects(svc.importFile(1, pdf()), /disk full/);
-  assert.equal((await svc.list()).length, 0);
+  assert.equal((await real(svc)).length, 0);
 });
 
 test('failed DB insert removes the copied file', async () => {
@@ -123,10 +127,10 @@ test('delete removes row and file; file failure keeps the record', async () => {
   const a = await svc.importFile(1, pdf());
   storage.failRemove = true;
   await assert.rejects(svc.remove(a.id), /permission denied/);
-  assert.equal((await svc.list()).length, 1);
+  assert.equal((await real(svc)).length, 1);
   storage.failRemove = false;
   await svc.remove(a.id);
-  assert.equal((await svc.list()).length, 0);
+  assert.equal((await real(svc)).length, 0);
   assert.equal(storage.files.size, 0);
   await assert.rejects(svc.remove(a.id), { code: 'NOT_FOUND' });
 });
@@ -135,10 +139,10 @@ test('missing file is flagged, open fails cleanly, delete still works', async ()
   const { svc, storage } = await setup();
   const doc = await svc.importFile(1, pdf());
   storage.files.clear();
-  assert.equal((await svc.list(1))[0].missing, true);
+  assert.equal((await real(svc, 1))[0].missing, true);
   await assert.rejects(svc.open(doc.id), { code: 'FILE_MISSING' });
   await svc.remove(doc.id);
-  assert.equal((await svc.list()).length, 0);
+  assert.equal((await real(svc)).length, 0);
 });
 
 test('open passes the private file URI to the viewer', async () => {
@@ -170,4 +174,98 @@ test('foreign keys are enforced and queries are parameterised', async () => {
 
 test('DocumentError carries a code', () => {
   assert.equal(new DocumentError('X', 'm').code, 'X');
+});
+
+const V1_SCHEMA = `
+  CREATE TABLE categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+  CREATE TABLE documents (id INTEGER PRIMARY KEY AUTOINCREMENT, category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE RESTRICT,
+    name TEXT NOT NULL, original_filename TEXT NOT NULL, file_type TEXT NOT NULL, mime_type TEXT, file_path TEXT NOT NULL UNIQUE,
+    file_size INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, expiry_date TEXT);
+  INSERT INTO categories (name) VALUES ('Personal Documents'),('Educational Documents'),('IDs'),('Work Related Documents');
+  INSERT INTO documents (category_id,name,original_filename,file_type,mime_type,file_path,file_size,created_at,updated_at)
+    VALUES (3,'My real ID scan','id.pdf','pdf','application/pdf','documents/real.pdf',10,'t','t');
+  PRAGMA user_version = 1;`;
+
+test('12 categories in the required order with slugs, icons and sort order', async () => {
+  const { svc } = await setup();
+  const cats = await svc.listCategories();
+  assert.deepEqual(cats.map((c) => c.name), [
+    'Personal Documents', 'Educational Documents', 'Identity Documents', 'Work & Career', 'Financial Documents', 'Medical & Health',
+    'Insurance Documents', 'Property & Real Estate', 'Vehicle Documents', 'Bills & Receipts', 'Legal Documents', 'Travel Documents']);
+  assert.deepEqual(cats.map((c) => c.slug), CATEGORIES.map((c) => c.slug));
+  assert.ok(cats.every((c) => c.icon && /^[a-z]+(-[a-z]+)*$/.test(c.slug)));
+});
+
+test('every category has its exact demo documents, marked demo, in its own category only', async () => {
+  const { svc } = await setup();
+  const cats = await svc.listCategories();
+  for (const spec of CATEGORIES) {
+    const cat = cats.find((c) => c.slug === spec.slug);
+    const docs = await svc.list(cat.id);
+    assert.deepEqual(docs.map((d) => d.name).sort(), [...spec.docs].sort(), spec.slug);
+    assert.ok(docs.every((d) => d.isDemo && d.filePath === null && d.fileSize === null && !d.missing && d.categoryId === cat.id));
+    assert.ok(docs.every((d) => d.originalFilename === `${d.name}.pdf`));
+  }
+  assert.equal((await svc.list()).length, 58);
+});
+
+test('relaunch does not duplicate demo data and deleted demo docs stay deleted', async () => {
+  const driver = nodeDriver();
+  const db1 = createDatabase(driver);
+  await db1.init();
+  const svc = createDocumentService({ db: db1, storage: memStorage() });
+  await svc.remove((await svc.list())[0].id);
+  const db2 = createDatabase(driver);
+  await db2.init();
+  assert.equal((await createDocumentService({ db: db2, storage: memStorage() }).list()).length, 57);
+});
+
+test('upgrade from schema v1 keeps real documents and renames/adopts categories', async () => {
+  const driver = nodeDriver();
+  driver.sqlite.exec(V1_SCHEMA);
+  const db = createDatabase(driver);
+  await db.init();
+  const svc = createDocumentService({ db, storage: memStorage() });
+  const cats = await svc.listCategories();
+  assert.equal(cats.length, 12);
+  assert.equal(cats[2].id, 3); // "IDs" row adopted as Identity Documents
+  assert.equal(cats[2].name, 'Identity Documents');
+  const realDocs = await real(svc, 3);
+  assert.equal(realDocs.length, 1);
+  assert.equal(realDocs[0].name, 'My real ID scan');
+  assert.equal(realDocs[0].isDemo, false);
+});
+
+test('demo documents do not open, can be renamed/removed, and are ignored by reconcile', async () => {
+  const { svc, opened } = await setup();
+  const [demo] = await svc.list(1);
+  await assert.rejects(svc.open(demo.id), { code: 'DEMO_DOCUMENT', message: DEMO_MESSAGE });
+  assert.deepEqual(opened, []);
+  assert.equal((await svc.rename(demo.id, 'Renamed sample')).name, 'Renamed sample');
+  assert.deepEqual(await svc.reconcile(), { orphansRemoved: 0, missing: [] });
+  await svc.remove(demo.id);
+  assert.equal((await svc.list(1)).length, 3);
+});
+
+test('real documents must have a file path (constraint)', async () => {
+  const { db } = await setup();
+  await assert.rejects(db.run(`INSERT INTO documents (category_id,name,original_filename,file_type,created_at,updated_at)
+    VALUES (1,'x','x.pdf','pdf','t','t');`));
+});
+
+test('an empty category shows no documents after its demo docs are removed', async () => {
+  const { svc } = await setup();
+  for (const d of await svc.list(12)) await svc.remove(d.id);
+  assert.deepEqual(await svc.list(12), []);
+});
+
+test('mock repository mirrors the seed data and rejects opening samples', async () => {
+  const mock = createMockService();
+  const cats = await mock.listCategories();
+  assert.equal(cats.length, 12);
+  for (const spec of CATEGORIES) {
+    const docs = await mock.list(cats.find((c) => c.slug === spec.slug).id);
+    assert.equal(docs.length, spec.docs.length);
+  }
+  await assert.rejects(mock.open(1), { code: 'DEMO_DOCUMENT' });
 });
