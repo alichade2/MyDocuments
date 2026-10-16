@@ -40,7 +40,13 @@
           <h2 id="cv-title"></h2>
           <p id="cv-count"></p>
         </div>
+      </div>
+      <div class="cv-actions">
         <button type="button" class="btn filled" id="cv-add">Add document</button>
+        <button type="button" class="btn outlined" id="cv-camera">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" fill-rule="evenodd" d="M9 3 7.2 5H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-3.2L15 3H9Zm3 5a5 5 0 1 1 0 10 5 5 0 0 1 0-10Zm0 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z"/></svg>
+          <span>Capture with Camera</span>
+        </button>
       </div>
       <div id="cv-docs"></div>
     </section>
@@ -60,6 +66,24 @@
         <button type="submit" class="btn filled" id="nd-save">Save Document</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="preview-dialog" aria-labelledby="pv-title">
+    <h3 id="pv-title">Check your photo</h3>
+    <img id="pv-img" alt="Preview of the captured document">
+    <div class="dialog-actions pv-actions">
+      <button type="button" class="btn text" id="pv-cancel">Cancel</button>
+      <button type="button" class="btn outlined" id="pv-retake">Retake</button>
+      <button type="button" class="btn filled" id="pv-continue">Continue</button>
+    </div>
+  </dialog>
+
+  <dialog id="viewer-dialog" aria-labelledby="vw-title">
+    <div class="vw-bar">
+      <h3 id="vw-title"></h3>
+      <button type="button" class="btn text vw-close" id="vw-close">Close</button>
+    </div>
+    <img id="vw-img" alt="">
   </dialog>
 
   <script type="module" src="js/app.js"></script>

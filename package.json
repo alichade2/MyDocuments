@@ -23,6 +23,7 @@
   "dependencies": {
     "@capacitor-community/sqlite": "^8.1.1",
     "@capacitor/android": "^8.5.3",
+    "@capacitor/camera": "^8.2.6",
     "@capacitor/core": "^8.5.3",
     "@capacitor/file-viewer": "^2.0.4",
     "@capacitor/filesystem": "^8.1.5",

@@ -38,4 +38,6 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Photos are taken with the system camera app: no CAMERA permission is needed; camera hardware is optional. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 </manifest>

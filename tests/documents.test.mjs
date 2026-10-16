@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { createDatabase, DEFAULT_CATEGORIES, SCHEMA_VERSION } from '../www/js/database.js';
-import { createDocumentService, DocumentError, DOCS_DIR, DEMO_MESSAGE, suggestName } from '../www/js/documents.js';
+import { createDocumentService, DocumentError, DOCS_DIR, THUMBS_DIR, DEMO_MESSAGE, suggestName } from '../www/js/documents.js';
 import { CATEGORIES } from '../www/js/seed.js';
 import { createMockService } from '../www/js/mock.js';
 
@@ -32,6 +32,7 @@ function memStorage() {
     async exists(p) { return files.has(p); },
     async list(dir) { return [...files.keys()].filter((k) => k.startsWith(`${dir}/`)).map((k) => k.slice(dir.length + 1)); },
     async uri(p) { return `file:///private/${p}`; },
+    async src(p) { return `https://localhost/_capacitor_file_/private/${p}`; },
   };
 }
 
@@ -310,4 +311,88 @@ test('pickFile returns null on cancel and the file otherwise', async () => {
   assert.equal(await (await mk(null)).svc.pickFile(), null);
   assert.deepEqual(await (await mk(f)).svc.pickFile(), f);
   await assert.rejects(setup().then((x) => x.svc.pickFile()), { code: 'NO_PICKER' });
+});
+
+const jpeg = (extra = {}) => ({ name: 'Captured_20261016_101500.jpg', mimeType: 'image/jpeg', size: 3000, data: 'SU1H', ...extra });
+
+test('capturePhoto: null on cancel, file-like result with generated name otherwise, errors propagate', async () => {
+  const mk = (camera, now) => setup({ camera, now });
+  assert.equal(await (await mk({ capture: async () => null })).svc.capturePhoto(), null);
+  const { svc } = await mk({ capture: async () => ({ mimeType: 'image/jpeg', data: 'QUJDRA==' }) }, () => '2026-10-16T10:15:00');
+  const shot = await svc.capturePhoto();
+  assert.match(shot.name, /^Captured_20261016_101500\.jpg$/);
+  assert.equal(shot.size, 4); // 'QUJDRA==' decodes to 4 bytes
+  const denied = await mk({ capture: async () => { throw new DocumentError('CAMERA_DENIED', 'no'); } });
+  await assert.rejects(denied.svc.capturePhoto(), { code: 'CAMERA_DENIED' });
+  await assert.rejects(setup().then((x) => x.svc.capturePhoto()), { code: 'NO_CAMERA' });
+});
+
+test('captured image is saved in the chosen category with thumbnail, separate name and original filename', async () => {
+  const thumbnailer = async (data, mime) => { assert.equal(mime, 'image/jpeg'); return 'VEhVTUI='; };
+  const { svc, storage } = await setup({ thumbnailer });
+  const doc = await svc.importFile(7, jpeg(), 'Aadhaar Card Front');
+  assert.equal(doc.categoryId, 7);
+  assert.equal(doc.name, 'Aadhaar Card Front');
+  assert.equal(doc.originalFilename, 'Captured_20261016_101500.jpg');
+  assert.equal(doc.fileType, 'jpg');
+  assert.equal(doc.mimeType, 'image/jpeg');
+  assert.ok(doc.thumbPath.startsWith(`${THUMBS_DIR}/`));
+  assert.equal(storage.files.get(doc.filePath), 'SU1H');
+  assert.equal(storage.files.get(doc.thumbPath), 'VEhVTUI=');
+  assert.equal((await real(svc, 7)).length, 1);
+  assert.equal(await svc.thumbnailSrc(doc), `https://localhost/_capacitor_file_/private/${doc.thumbPath}`);
+  assert.equal(await svc.imageSrc(doc.id), `https://localhost/_capacitor_file_/private/${doc.filePath}`);
+});
+
+test('thumbnail failure never blocks saving; PDFs get no thumbnail', async () => {
+  const bad = await setup({ thumbnailer: async () => { throw new Error('decode failed'); } });
+  const doc = await bad.svc.importFile(1, jpeg(), 'Photo');
+  assert.equal(doc.thumbPath, null);
+  assert.equal(await bad.svc.thumbnailSrc(doc), null);
+  const ok = await setup({ thumbnailer: async () => 'VA==' });
+  assert.equal((await ok.svc.importFile(1, pdf(), 'Doc')).thumbPath, null);
+});
+
+test('delete removes image and thumbnail; failed insert removes both; rename leaves both untouched', async () => {
+  const { svc, storage, driver } = await setup({ thumbnailer: async () => 'VA==' });
+  const doc = await svc.importFile(1, jpeg(), 'Photo');
+  const before = [...storage.files.entries()];
+  await svc.rename(doc.id, 'Renamed photo');
+  assert.deepEqual([...storage.files.entries()], before);
+  await svc.remove(doc.id);
+  assert.equal(storage.files.size, 0);
+  driver.sqlite.exec('DROP TABLE documents');
+  await assert.rejects(svc.importFile(1, jpeg(), 'x'));
+  assert.equal(storage.files.size, 0);
+});
+
+test('reconcile sweeps orphan thumbnails but keeps referenced ones', async () => {
+  const { svc, storage } = await setup({ thumbnailer: async () => 'VA==' });
+  const doc = await svc.importFile(1, jpeg(), 'Photo');
+  storage.files.set(`${THUMBS_DIR}/orphan.jpg`, 'x');
+  await svc.reconcile();
+  assert.ok(storage.files.has(doc.thumbPath));
+  assert.ok(!storage.files.has(`${THUMBS_DIR}/orphan.jpg`));
+});
+
+test('imageSrc rejects demo, non-image and missing documents', async () => {
+  const { svc, storage } = await setup();
+  const [demo] = await svc.list(1);
+  await assert.rejects(svc.imageSrc(demo.id), { code: 'DEMO_DOCUMENT' });
+  const p = await svc.importFile(1, pdf(), 'A pdf');
+  await assert.rejects(svc.imageSrc(p.id), { code: 'NOT_IMAGE' });
+  const img = await svc.importFile(1, jpeg(), 'Img');
+  storage.files.delete(img.filePath);
+  await assert.rejects(svc.imageSrc(img.id), { code: 'FILE_MISSING' });
+});
+
+test('v2 database upgrades to v3 with thumb_path and keeps data', async () => {
+  const driver = nodeDriver();
+  await createDatabase(driver).init();
+  driver.sqlite.exec('ALTER TABLE documents DROP COLUMN thumb_path; PRAGMA user_version = 2;');
+  const db = createDatabase(driver);
+  await db.init();
+  assert.equal(driver.sqlite.prepare('PRAGMA user_version').get().user_version, 3);
+  assert.equal(driver.sqlite.prepare('SELECT COUNT(*) c FROM documents').get().c, 58);
+  assert.ok(driver.sqlite.prepare('PRAGMA table_info(documents)').all().some((c) => c.name === 'thumb_path'));
 });

@@ -1,7 +1,8 @@
 // UI layer: dashboard card grid + single-page category view. No SQLite access here.
 import { createDatabase, capacitorSqliteDriver, isNativePlatform } from './database.js';
-import { createDocumentService, capacitorAdapters, DEMO_MESSAGE, suggestName, validateName } from './documents.js';
+import { createDocumentService, capacitorAdapters, DEMO_MESSAGE, IMAGE_TYPES, suggestName, validateName } from './documents.js';
 import { createMockService } from './mock.js';
+import { createThumbnail } from './images.js';
 
 const $ = (id) => document.getElementById(id);
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -120,9 +121,16 @@ function renderDocCard(doc) {
   const type = FILE_TYPES[doc.fileType] ?? { cls: 't-other', label: (doc.fileType || '?').slice(0, 3) };
   const iconEl = el('span', { class: `card-icon ${type.cls}` });
   if (type.icon) iconEl.append(svgIcon(type.icon)); else iconEl.textContent = type.label;
+  let leading = iconEl;
+  if (doc.thumbPath) { // photo thumbnail; falls back to the icon if it cannot be loaded
+    const img = el('img', { class: 'card-thumb', alt: '', loading: 'lazy', decoding: 'async' });
+    img.addEventListener('error', () => img.replaceWith(iconEl), { once: true });
+    service.thumbnailSrc(doc).then((src) => { if (src) img.src = src; else img.replaceWith(iconEl); }).catch(() => img.replaceWith(iconEl));
+    leading = img;
+  }
   const meta = [doc.fileType?.toUpperCase(), formatSize(doc.fileSize), doc.createdAt?.slice(0, 10)].filter(Boolean).join(' · ');
   const main = el('button', { class: 'card-main', type: 'button', 'data-action': 'open', 'aria-label': `${doc.name}${doc.isDemo ? ' (sample)' : ''}` },
-    iconEl,
+    leading,
     el('span', { class: 'card-name' }, doc.name),
     el('span', { class: 'card-meta' }, meta));
   if (doc.isDemo) main.append(el('span', { class: 'badge' }, 'Sample'));
@@ -198,9 +206,18 @@ function openNameDialog(flow) {
   f.hidden = !flow.fileLabel;
   f.textContent = flow.fileLabel ? `File: ${flow.fileLabel}` : '';
   setNameError('');
+  $('nd-input').placeholder = flow.placeholder ?? 'e.g., My Aadhaar Card';
   $('nd-input').value = flow.initial;
   $('name-dialog').showModal();
   $('nd-input').select();
+}
+
+/** Closes the name dialog and runs the flow's cleanup (e.g. discarding an unsaved capture). Idempotent. */
+function closeNameDialog() {
+  if ($('name-dialog').open) $('name-dialog').close();
+  const flow = nameFlow;
+  nameFlow = null;
+  flow?.onClose?.();
 }
 
 function setNameError(msg) {
@@ -227,7 +244,7 @@ async function submitName(e) {
   setSaving(true);
   try {
     const message = await nameFlow.onSave(name);
-    $('name-dialog').close();
+    closeNameDialog();
     showMessage(message);
   } catch (err) {
     console.error('MyDocs error:', err?.code || err?.name || 'error');
@@ -252,6 +269,62 @@ const addDoc = () => guarded(async () => {
   });
 });
 
+/* Camera capture: capture -> preview (Retake / Continue / Cancel) -> name -> save. Nothing persists until Save. */
+let pending = null; // { categoryId, photo } while a capture is being reviewed
+
+function releasePending() {
+  pending = null;
+  $('pv-img').removeAttribute('src');
+}
+
+function showPreview(categoryId, photo) {
+  pending = { categoryId, photo };
+  $('pv-img').src = `data:${photo.mimeType};base64,${photo.data}`;
+  if (!$('preview-dialog').open) $('preview-dialog').showModal();
+}
+
+const captureDoc = () => guarded(async () => {
+  if (saving || $('name-dialog').open || $('preview-dialog').open) return;
+  const categoryId = view.categoryId;
+  const photo = await service.capturePhoto();
+  if (photo) showPreview(categoryId, photo); // null = user left the camera; nothing happens
+});
+
+const retake = () => guarded(async () => {
+  const prev = pending;
+  if (!prev) return;
+  $('preview-dialog').close(); // the camera is a separate activity
+  let photo = null;
+  try { photo = await service.capturePhoto(); } finally {
+    showPreview(prev.categoryId, photo ?? prev.photo); // cancelled retake keeps the previous photo
+  }
+});
+
+function continueCapture() {
+  const { categoryId, photo } = pending;
+  const day = new Date().toISOString().slice(0, 10);
+  $('preview-dialog').close();
+  openNameDialog({
+    title: 'Name your document', saveLabel: 'Save Document', placeholder: 'e.g., Aadhaar Card Front', initial: `Captured Document ${day}`,
+    onSave: async (name) => {
+      await service.importFile(categoryId, photo, name);
+      await reloadCategory(categoryId);
+      return `Saved "${name}"`;
+    },
+    onClose: releasePending, // Cancel (or Esc) discards the capture
+  });
+}
+
+async function viewImage(doc) {
+  await guarded(async () => {
+    const src = await service.imageSrc(doc.id);
+    $('vw-title').textContent = doc.name;
+    $('vw-img').alt = doc.name;
+    $('vw-img').src = src;
+    $('viewer-dialog').showModal();
+  });
+}
+
 function handleDocAction(e) {
   const btn = e.target.closest('[data-action]');
   const cardEl = btn?.closest('[data-doc-id]');
@@ -261,6 +334,7 @@ function handleDocAction(e) {
   const action = btn.dataset.action;
   if (action === 'open') {
     if (doc.isDemo) showMessage(DEMO_MESSAGE); // never pretend a sample file exists
+    else if (IMAGE_TYPES.has(doc.fileType)) viewImage(doc);
     else guarded(() => service.open(doc.id));
   } else if (action === 'rename') {
     openNameDialog({
@@ -286,9 +360,15 @@ function wireEvents() {
   $('cv-docs').addEventListener('click', handleDocAction);
   $('cv-back').addEventListener('click', goBack);
   $('cv-add').addEventListener('click', addDoc);
-  $('nd-cancel').addEventListener('click', () => $('name-dialog').close());
+  $('cv-camera').addEventListener('click', captureDoc);
+  $('pv-retake').addEventListener('click', retake);
+  $('pv-continue').addEventListener('click', continueCapture);
+  $('pv-cancel').addEventListener('click', () => { releasePending(); $('preview-dialog').close(); });
+  $('preview-dialog').addEventListener('cancel', releasePending); // Esc / system back discards the capture
+  $('vw-close').addEventListener('click', () => { $('viewer-dialog').close(); $('vw-img').removeAttribute('src'); });
+  $('nd-cancel').addEventListener('click', closeNameDialog);
   $('name-form').addEventListener('submit', submitName);
-  $('name-dialog').addEventListener('cancel', (e) => { if (saving) e.preventDefault(); });
+  $('name-dialog').addEventListener('cancel', (e) => { if (saving) e.preventDefault(); else closeNameDialog(); }); // Esc / system back
   $('nd-input').addEventListener('input', () => setNameError(''));
 }
 
@@ -297,8 +377,8 @@ async function init() {
   if (isNativePlatform()) {
     const db = createDatabase(capacitorSqliteDriver());
     await db.init();
-    const { storage, picker, viewer } = capacitorAdapters();
-    service = createDocumentService({ db, storage, picker, viewer });
+    const { storage, picker, viewer, camera } = capacitorAdapters();
+    service = createDocumentService({ db, storage, picker, viewer, camera, thumbnailer: createThumbnail });
     await service.reconcile();
   } else {
     service = createMockService();

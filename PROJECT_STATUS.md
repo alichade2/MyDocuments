@@ -66,6 +66,16 @@ Dashboard v2 (12 categories + demo data) implemented 2026-10-16; see "Dashboard 
 - Verified: `npm test` 27/27; browser preview (360px): prefill, empty-name error, cancel saves nothing, double-submit creates one record, correct category/count, survives back + reopen, rename + empty rename error, no overflow. Debug APK built, installed and launched on the emulator with no console/runtime errors.
 - NOT verified on device: the real Android file picker -> name dialog -> save -> reopen. The browser preview uses a mock picker with a fixed sample file.
 
+## Camera capture (2026-10-16)
+- New plugin: `@capacitor/camera` 8.2.6 (`takePhoto`, JPEG q90, max 2400px, orientation corrected, not saved to gallery). Manifest: only `<uses-feature android.hardware.camera required=false>`. No `CAMERA` permission is declared, so the system camera app handles capture and the app never asks for permission; the plugin only requests it if the permission is declared. Denied/unavailable/capture errors map to friendly messages; leaving the camera is treated as cancel.
+- Flow (every category): Capture with Camera -> system camera -> preview dialog (Retake / Continue / Cancel) -> name dialog (placeholder `e.g., Aadhaar Card Front`, default `Captured Document <date>`, mandatory) -> Save Document. Nothing is stored before Save; Cancel/Esc discards the capture. Retake that is cancelled keeps the previous photo.
+- Storage: image is written to `documents/<uuid>.jpg` via the existing import path (`importFile`), display name stored separately from `original_filename` (`Captured_YYYYMMDD_HHMMSS.jpg`). Schema v3 adds `documents.thumb_path`; a ~320px JPEG thumbnail is written to `thumbnails/<uuid>.jpg` (best effort, 8 s timeout, never blocks saving). Thumbnails also apply to images uploaded from storage. Delete removes image and thumbnail; reconcile sweeps orphan thumbnails.
+- UI: Add document + Capture with Camera buttons side by side; cards show the photo thumbnail in place of the icon (icon fallback); tapping an image document opens a full-screen viewer; PDFs/others keep the existing viewer. Images are served to the WebView through `Capacitor.convertFileSrc`, not base64.
+- Files changed: `package.json`, `package-lock.json`, `android/app/src/main/AndroidManifest.xml`, `www/index.html`, `www/css/styles.css`, `www/js/{app,database,documents,mock}.js`, new `www/js/images.js`, `tests/documents.test.mjs`.
+- Verified: `npm test` 34/34. Browser preview (360px, fake camera): button in all 12 categories, preview, retake, cancel at preview and at name dialog saves nothing, empty-name error, save with a long name, thumbnail renders, full-screen viewer, reopen category persists, rename, delete, no horizontal overflow. Android emulator: debug APK built and installed; app upgraded v2 -> v3 with existing data intact; Capture with Camera opens the system camera app; leaving the camera returns to the category with no crash, no preview and nothing saved.
+- NOT verified on device: taking a real photo through preview -> name -> save, thumbnail and full-screen view of a real photo, restart persistence of a captured photo. The emulator's camera app showed a black screen and could not be driven from adb, so these need a real device or a working virtual camera.
+- Browser-preview note: `Image.decode()` hung in a background pane, so thumbnails use onload/onerror and the service times out thumbnailing after 8 s.
+
 ## Known issues and blockers
 1. (Resolved) Android SDK/emulator now installed; build with `JAVA_HOME` = JDK 21 and `ANDROID_HOME` set works.
 3. Unverified assumptions to check on device: FilePicker `readData` result, `Filesystem.getUri` path accepted by `FileViewer.openDocumentFromLocalPath`, CapacitorSQLite `isConnection`/transaction calls with `transaction:false`, and `Capacitor.Plugins.<Name>` proxies without a bundler.
@@ -90,6 +100,7 @@ Inspected environment, initialised Capacitor/Android, built dashboard, database 
 ## Change history
 - 2026-10-16: initial implementation (see Git history).
 - 2026-10-16: 12-category dashboard, demo data, schema v2, tests 15 -> 23.
+- 2026-10-16: camera capture with preview, thumbnails, full-screen viewer, schema v3, tests 27 -> 34.
 - 2026-10-16: upload asks for a document name (shared with rename), tests 23 -> 27.
 - 2026-10-16: replaced category list with 3-column card grid + category view.
 

@@ -2,6 +2,8 @@
 // Storage / picker / viewer are injected adapters so no native API reaches the UI.
 
 export const DOCS_DIR = 'documents';
+export const THUMBS_DIR = 'thumbnails'; // outside DOCS_DIR so reconcile can sweep each independently
+export const IMAGE_TYPES = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif']);
 export const MAX_FILE_BYTES = 25 * 1024 * 1024;
 export const MAX_NAME_LENGTH = 120;
 
@@ -18,6 +20,13 @@ export const SUPPORTED_TYPES = {
 };
 
 export const DEMO_MESSAGE = 'This is sample document data. Import a real document to preview it.';
+
+const THUMB_TIMEOUT_MS = 8000;
+function withTimeout(promise, ms) {
+  let timer;
+  const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timed out')), ms); });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
 
 export class DocumentError extends Error {
   constructor(code, message) { super(message); this.name = 'DocumentError'; this.code = code; }
@@ -45,7 +54,7 @@ function toRecord(r) {
   return {
     id: r.id, categoryId: r.category_id, name: r.name, originalFilename: r.original_filename,
     fileType: r.file_type, mimeType: r.mime_type, filePath: r.file_path, fileSize: r.file_size,
-    createdAt: r.created_at, updatedAt: r.updated_at, expiryDate: r.expiry_date, isDemo: r.is_demo === 1,
+    createdAt: r.created_at, updatedAt: r.updated_at, expiryDate: r.expiry_date, isDemo: r.is_demo === 1, thumbPath: r.thumb_path ?? null,
   };
 }
 
@@ -55,8 +64,10 @@ function toRecord(r) {
  * @param {object} deps.storage  { write(path, base64), remove(path), exists(path), list(dir), uri(path) }
  * @param {object} [deps.picker] { pick() -> {name, mimeType, size, data(base64)} | null }
  * @param {object} [deps.viewer] { open(uri, mimeType) }
+ * @param {object} [deps.camera] { capture() -> {mimeType, data(base64)} | null } (throws DocumentError on denial/unavailable)
+ * @param {Function} [deps.thumbnailer] async (base64, mimeType) -> base64 JPEG thumbnail | null
  */
-export function createDocumentService({ db, storage, picker, viewer, now = () => new Date().toISOString(), uuid = () => crypto.randomUUID() }) {
+export function createDocumentService({ db, storage, picker, viewer, camera, thumbnailer, now = () => new Date().toISOString(), uuid = () => crypto.randomUUID() }) {
   async function requireCategory(categoryId) {
     const rows = await db.all('SELECT id FROM categories WHERE id = ?;', [categoryId]);
     if (!rows.length) throw new DocumentError('INVALID_CATEGORY', 'Unknown category.');
@@ -90,16 +101,25 @@ export function createDocumentService({ db, storage, picker, viewer, now = () =>
       if (!file.data) throw new DocumentError('EMPTY_FILE', 'The selected file has no content.');
       if (file.size > MAX_FILE_BYTES) throw new DocumentError('TOO_LARGE', 'File is larger than 25 MB.');
       const name = validateName(displayName ?? file.name.replace(/\.[^.]+$/, ''));
-      const filePath = `${DOCS_DIR}/${uuid()}.${ext}`; // collision-resistant; duplicate display names are fine
+      const id = uuid();
+      const filePath = `${DOCS_DIR}/${id}.${ext}`; // collision-resistant; duplicate display names are fine
       await storage.write(filePath, file.data);
+      let thumbPath = null;
+      if (thumbnailer && IMAGE_TYPES.has(ext)) { // best effort: a missing thumbnail never blocks saving
+        try {
+          const thumb = await withTimeout(thumbnailer(file.data, SUPPORTED_TYPES[ext]), THUMB_TIMEOUT_MS);
+          if (thumb) { thumbPath = `${THUMBS_DIR}/${id}.jpg`; await storage.write(thumbPath, thumb); }
+        } catch { thumbPath = null; }
+      }
       try {
         const ts = now();
         await db.transaction(() => db.run(
-          `INSERT INTO documents (category_id, name, original_filename, file_type, mime_type, file_path, file_size, created_at, updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?);`,
-          [categoryId, name, file.name, ext, SUPPORTED_TYPES[ext], filePath, file.size ?? 0, ts, ts]));
+          `INSERT INTO documents (category_id, name, original_filename, file_type, mime_type, file_path, file_size, created_at, updated_at, thumb_path)
+           VALUES (?,?,?,?,?,?,?,?,?,?);`,
+          [categoryId, name, file.name, ext, SUPPORTED_TYPES[ext], filePath, file.size ?? 0, ts, ts, thumbPath]));
       } catch (err) {
         await storage.remove(filePath).catch(() => {}); // keep file system and DB consistent
+        if (thumbPath) await storage.remove(thumbPath).catch(() => {});
         throw err;
       }
       const rows = await db.all('SELECT * FROM documents WHERE file_path = ?;', [filePath]);
@@ -110,6 +130,32 @@ export function createDocumentService({ db, storage, picker, viewer, now = () =>
     async pickFile() {
       if (!picker) throw new DocumentError('NO_PICKER', 'File picking is not available on this platform.');
       return (await picker.pick()) ?? null;
+    },
+
+    /** Camera capture (step 1 of the capture flow). Returns a file-like object, or null when cancelled. */
+    async capturePhoto() {
+      if (!camera) throw new DocumentError('NO_CAMERA', 'The camera is not available on this platform.');
+      const shot = await camera.capture();
+      if (!shot) return null;
+      const d = new Date(now());
+      const p = (n) => String(n).padStart(2, '0');
+      const stamp = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+      const padding = (shot.data.match(/=+$/) ?? [''])[0].length;
+      return { name: `Captured_${stamp}.jpg`, mimeType: 'image/jpeg', size: Math.floor((shot.data.length * 3) / 4) - padding, data: shot.data };
+    },
+
+    /** URL the WebView can display for the document's thumbnail (null when there is none). */
+    async thumbnailSrc(doc) {
+      return doc?.thumbPath && (await storage.exists(doc.thumbPath)) ? storage.src(doc.thumbPath) : null;
+    },
+
+    /** URL for the full-size image of an image document (used by the full-screen viewer). */
+    async imageSrc(id) {
+      const row = await getRow(id);
+      if (row.is_demo === 1) throw new DocumentError('DEMO_DOCUMENT', DEMO_MESSAGE);
+      if (!IMAGE_TYPES.has(row.file_type)) throw new DocumentError('NOT_IMAGE', 'This document is not an image.');
+      if (!(await storage.exists(row.file_path))) throw new DocumentError('FILE_MISSING', 'The file for this document is missing from storage.');
+      return storage.src(row.file_path);
     },
 
     async importFromPicker(categoryId) {
@@ -129,6 +175,7 @@ export function createDocumentService({ db, storage, picker, viewer, now = () =>
     async remove(id) {
       const row = await getRow(id);
       if (row.file_path && await storage.exists(row.file_path)) await storage.remove(row.file_path); // abort if file cannot be deleted
+      if (row.thumb_path) await storage.remove(row.thumb_path).catch(() => {});
       await db.transaction(() => db.run('DELETE FROM documents WHERE id = ?;', [id]));
     },
 
@@ -147,6 +194,11 @@ export function createDocumentService({ db, storage, picker, viewer, now = () =>
       for (const f of await storage.list(DOCS_DIR)) {
         const path = `${DOCS_DIR}/${f}`;
         if (!known.has(path)) { await storage.remove(path).catch(() => {}); orphansRemoved++; }
+      }
+      const knownThumbs = new Set((await db.all('SELECT thumb_path FROM documents WHERE thumb_path IS NOT NULL;')).map((r) => r.thumb_path));
+      for (const f of await storage.list(THUMBS_DIR)) {
+        const path = `${THUMBS_DIR}/${f}`;
+        if (!knownThumbs.has(path)) await storage.remove(path).catch(() => {});
       }
       const missing = (await service.list()).filter((d) => d.missing).map((d) => d.id);
       return { orphansRemoved, missing };
@@ -170,6 +222,7 @@ export function capacitorAdapters(plugins = globalThis.Capacitor?.Plugins) {
       try { return (await fs.readdir({ path: dir, directory })).files.map((f) => f.name ?? f); } catch (e) { if (isMissing(e)) return []; throw e; }
     },
     async uri(path) { return (await fs.getUri({ path, directory })).uri; },
+    async src(path) { return globalThis.Capacitor.convertFileSrc(await storage.uri(path)); },
   };
   const picker = plugins?.FilePicker && {
     async pick() {
@@ -186,5 +239,31 @@ export function capacitorAdapters(plugins = globalThis.Capacitor?.Plugins) {
   const viewer = plugins?.FileViewer && {
     open: (uri) => plugins.FileViewer.openDocumentFromLocalPath({ path: uri }),
   };
-  return { storage, picker, viewer };
+  const cam = plugins?.Camera;
+  const camera = cam && {
+    async capture() {
+      try {
+        // Uses the system camera app (no CAMERA permission is declared, so none is requested).
+        const res = await cam.takePhoto({ quality: 90, targetWidth: 2400, targetHeight: 2400, correctOrientation: true, encodingType: 0, saveToGallery: false });
+        const url = res.webPath ?? res.uri;
+        if (!url) throw new DocumentError('CAPTURE_FAILED', 'The camera did not return a photo.');
+        const blob = await (await fetch(globalThis.Capacitor.convertFileSrc(url))).blob();
+        const data = await new Promise((resolve, reject) => {
+          const r = new FileReader();
+          r.onload = () => resolve(String(r.result).split(',')[1]);
+          r.onerror = () => reject(r.error);
+          r.readAsDataURL(blob);
+        });
+        return { mimeType: 'image/jpeg', data };
+      } catch (e) {
+        if (e instanceof DocumentError) throw e;
+        const text = `${e?.code ?? ''} ${e?.message ?? e}`;
+        if (/0006|cancel/i.test(text)) return null; // user backed out of the camera
+        if (/0003|permission|denied/i.test(text)) throw new DocumentError('CAMERA_DENIED', 'Camera access was denied. Allow camera access for MyDocs in Android Settings, then try again.');
+        if (/0007|no camera|unavailable/i.test(text)) throw new DocumentError('CAMERA_UNAVAILABLE', 'No camera is available on this device.');
+        throw new DocumentError('CAPTURE_FAILED', 'Could not capture the photo. Please try again.');
+      }
+    },
+  };
+  return { storage, picker, viewer, camera };
 }
