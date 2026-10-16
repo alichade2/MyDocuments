@@ -3,6 +3,7 @@ import { createDatabase, capacitorSqliteDriver, isNativePlatform } from './datab
 import { createDocumentService, capacitorAdapters, DEMO_MESSAGE, IMAGE_TYPES, suggestName, validateName } from './documents.js';
 import { createMockService } from './mock.js';
 import { createThumbnail } from './images.js';
+import { prefersReducedMotion, expandCategory, collapseCategory } from './transitions.js';
 
 const $ = (id) => document.getElementById(id);
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -172,24 +173,62 @@ function show(categoryId, { restoreScroll = false } = {}) {
   }
 }
 
+/* Navigation: animated container transform; instant when reduced motion is requested or there is no origin card. */
+const motion = { busy: false, queued: null };
+
+async function runTransition(fn) {
+  motion.busy = true;
+  try { await fn(); } catch (err) { console.error('MyDocs transition error:', err?.name || 'error'); } finally {
+    motion.busy = false;
+    const next = motion.queued;
+    motion.queued = null;
+    next?.();
+  }
+}
+
+const transitionEls = () => ({
+  view: $('category-view'), dashboard: $('dashboard-view'), categories: $('categories'),
+  appBar: document.querySelector('.app-bar'), main: document.querySelector('main'), banner: $('banner'),
+  icon: $('cv-icon'), title: $('cv-title'),
+  staggered: [$('cv-back'), $('cv-count'), document.querySelector('.cv-actions'), $('cv-docs')],
+});
+
 function openCategory(categoryId) {
+  if (motion.busy) return; // ignore rapid taps while a transition runs
   if (view.categoryId == null) view.scrollY = window.scrollY;
   history.pushState({ categoryId }, '');
-  show(categoryId);
+  if (prefersReducedMotion()) { show(categoryId); return; }
+  const card = cards.get(categoryId).cardEl;
+  view.categoryId = categoryId;
+  renderCategoryView(); // content comes from state already in memory; nothing is reloaded for the animation
+  runTransition(async () => {
+    await expandCategory({ ...transitionEls(), card });
+    $('cv-back').focus({ preventScroll: true });
+  });
+}
+
+function leaveCategory() {
+  if (motion.busy) { motion.queued = leaveCategory; return; }
+  const prev = view.categoryId;
+  if (prev == null) return;
+  const card = cards.get(prev).cardEl;
+  if (prefersReducedMotion()) { show(null, { restoreScroll: true }); card.focus({ preventScroll: true }); return; }
+  view.categoryId = null;
+  runTransition(async () => {
+    await collapseCategory({ ...transitionEls(), card, restoreScroll: view.scrollY });
+    card.focus({ preventScroll: true });
+  });
 }
 
 function goBack() {
-  if (history.state?.categoryId != null) history.back(); else show(null, { restoreScroll: true });
+  if (history.state?.categoryId != null) history.back(); else leaveCategory();
 }
 
 window.addEventListener('popstate', (e) => {
   const id = e.state?.categoryId;
-  if (id != null && cards.has(id)) show(id);
-  else {
-    const prev = view.categoryId;
-    show(null, { restoreScroll: true });
-    if (prev != null) cards.get(prev)?.cardEl.focus({ preventScroll: true });
-  }
+  if (id != null && cards.has(id)) {
+    if (motion.busy) motion.queued = () => show(id); else show(id); // history-forward: no origin card, so no animation
+  } else leaveCategory();
 });
 
 /* ---------- Actions ---------- */
@@ -372,9 +411,23 @@ function wireEvents() {
   $('nd-input').addEventListener('input', () => setNameError(''));
 }
 
+/** Capacitor 8 does not handle the system Back button itself: dialogs first, then category -> dashboard, then exit. */
+function wireBackButton() {
+  const appPlugin = globalThis.Capacitor?.Plugins?.App;
+  if (!appPlugin) return;
+  appPlugin.addListener('backButton', () => {
+    if ($('viewer-dialog').open) { $('vw-close').click(); return; }
+    if ($('name-dialog').open) { if (!saving) closeNameDialog(); return; }
+    if ($('preview-dialog').open) { releasePending(); $('preview-dialog').close(); return; }
+    if (view.categoryId != null) { goBack(); return; }
+    appPlugin.exitApp();
+  });
+}
+
 async function init() {
   wireEvents();
   if (isNativePlatform()) {
+    wireBackButton();
     const db = createDatabase(capacitorSqliteDriver());
     await db.init();
     const { storage, picker, viewer, camera } = capacitorAdapters();

@@ -76,6 +76,15 @@ Dashboard v2 (12 categories + demo data) implemented 2026-10-16; see "Dashboard 
 - NOT verified on device: taking a real photo through preview -> name -> save, thumbnail and full-screen view of a real photo, restart persistence of a captured photo. The emulator's camera app showed a black screen and could not be driven from adb, so these need a real device or a working virtual camera.
 - Browser-preview note: `Image.decode()` hung in a background pane, so thumbnails use onload/onerror and the service times out thumbnailing after 8 s.
 
+## Category open/close animation (2026-10-17)
+- Architecture: single-page WebView (vanilla JS), so the transition is built with the Web Animations API in new `www/js/transitions.js` (no libraries). Technique: container transform. The category view becomes a fixed overlay and its `clip-path: inset(... round 16px)` animates between the tapped card's rectangle and the full screen (380 ms, Material emphasized-decelerate), so content is revealed rather than scaled. The card's icon and name travel to the heading (FLIP shared elements); back arrow, count, buttons and grid fade/slide in with 50 ms stagger; the dashboard dims slightly. Tap feedback is a 90 ms card scale-down. Back reverses it: the view collapses into the originating card (300 ms) while the dashboard returns at its saved scroll position (dashboard DOM is never rebuilt, no data reloads), focus returns to the card.
+- Robustness: taps during a transition are ignored; a Back request during a transition is queued; `settled()` has a safety timeout so navigation can't stick; `prefers-reduced-motion` or missing WAAPI or no origin card (history-forward) -> instant switch; overlay padding is computed to line up with the in-flow layout so there is no jump at the end.
+- New dependency: `@capacitor/app` 8.1.2. Capacitor 8 no longer handles the system Back button, so before this the Android Back button closed the app from a category. Back now: closes open dialog/viewer, else category -> dashboard (animated), else exits.
+- Files changed: `www/js/transitions.js` (new), `www/js/app.js`, `www/css/styles.css`, `package.json`, `package-lock.json`, Android sync files.
+- Verified: `npm test` 34/34 (logic only). Browser preview (360px): mid-transition frames show the card region expanding and the icon/title moving; end state has no overlay or leftover animations; back arrow and history.back restore scroll 300 and card focus; rapid clicks open only one category; queued back works. Emulator (Pixel_10_Pro AVD): open frames captured mid-transition and final state correct; Android Back from a category returns to the dashboard (animated), Back on the dashboard exits; no runtime errors.
+- Not verified: frame rate/jank on low-end hardware; reduced-motion path on a real device ("Remove animations" mapping to the CSS media query varies by WebView version); rotation mid-transition.
+- Emulator note: disturbing the emulator's camera app left its graphics/camera HAL crashing (black screen) until `adb reboot`; unrelated to MyDocs.
+
 ## Known issues and blockers
 1. (Resolved) Android SDK/emulator now installed; build with `JAVA_HOME` = JDK 21 and `ANDROID_HOME` set works.
 3. Unverified assumptions to check on device: FilePicker `readData` result, `Filesystem.getUri` path accepted by `FileViewer.openDocumentFromLocalPath`, CapacitorSQLite `isConnection`/transaction calls with `transaction:false`, and `Capacitor.Plugins.<Name>` proxies without a bundler.
@@ -100,6 +109,7 @@ Inspected environment, initialised Capacitor/Android, built dashboard, database 
 ## Change history
 - 2026-10-16: initial implementation (see Git history).
 - 2026-10-16: 12-category dashboard, demo data, schema v2, tests 15 -> 23.
+- 2026-10-17: animated category open/close (container transform), Android Back handling via @capacitor/app.
 - 2026-10-16: camera capture with preview, thumbnails, full-screen viewer, schema v3, tests 27 -> 34.
 - 2026-10-16: upload asks for a document name (shared with rename), tests 23 -> 27.
 - 2026-10-16: replaced category list with 3-column card grid + category view.
