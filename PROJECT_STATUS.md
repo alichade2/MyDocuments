@@ -52,9 +52,14 @@ Dashboard v2 (12 categories + demo data) implemented 2026-10-16; see "Dashboard 
 - `gradlew assembleDebug` with JDK 21: **failed** - Gradle wrapper could not download `gradle-8.14.3-all.zip` (network error from this environment). Separately, no Android SDK is installed (`ANDROID_HOME` unset, no `%LOCALAPPDATA%\Android\Sdk`, no Android Studio found), so the build could not succeed regardless.
 - Could not run: Android emulator/device startup, native plugin initialisation, real import/preview, iOS.
 
+## Android emulator verification (2026-10-16, Pixel_10_Pro AVD, API 37 image)
+- Bug found on device: blank dashboard, Logcat `MyDocs init failed: plugin.isConnection is not a function` (`isConnection` exists only in the plugin's JS wrapper, not natively). Fixed in `database.js` by calling `createConnection` and tolerating "already exists".
+- After fix (`gradlew installDebug` succeeded, app launched): native CapacitorSQLite opened the DB, v2 migration ran, demo documents seeded (ids 1-58 returned per category), and the 2-column category grid rendered with correct counts (screenshot checked).
+- Not yet verified on device: opening a category, rename/delete, real file import/preview, relaunch idempotency, v1->v2 upgrade on device.
+- Note: debug builds echo SQLite query results (incl. document names) to Logcat via the plugin/Capacitor console; release builds should not.
+
 ## Known issues and blockers
-1. Android SDK / Android Studio not installed; `JAVA_HOME` points to JDK 11 (needs 21; JDK 21 exists at `C:\Program Files\Java\jdk-21`).
-2. Gradle distribution download failed in this environment.
+1. (Resolved) Android SDK/emulator now installed; build with `JAVA_HOME` = JDK 21 and `ANDROID_HOME` set works.
 3. Unverified assumptions to check on device: FilePicker `readData` result, `Filesystem.getUri` path accepted by `FileViewer.openDocumentFromLocalPath`, CapacitorSQLite `isConnection`/transaction calls with `transaction:false`, and `Capacitor.Plugins.<Name>` proxies without a bundler.
 4. `npm audit` reports vulnerabilities in dependencies; not yet reviewed.
 5. Expiry date column exists but has no UI yet.

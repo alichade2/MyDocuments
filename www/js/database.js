@@ -143,9 +143,11 @@ export function capacitorSqliteDriver(plugin = globalThis.Capacitor?.Plugins?.Ca
   const database = DB_NAME;
   return {
     async open() {
-      const { result } = await plugin.isConnection({ database, readonly: false }).catch(() => ({ result: false }));
-      if (!result) {
+      // isConnection() is a JS-wrapper method, not a native one; a repeat createConnection just reports "already exists".
+      try {
         await plugin.createConnection({ database, version: 1, encrypted: false, mode: 'no-encryption', readonly: false });
+      } catch (e) {
+        if (!/already exist/i.test(String(e?.message ?? e))) throw e;
       }
       await plugin.open({ database, readonly: false });
     },
