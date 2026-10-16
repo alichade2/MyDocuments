@@ -20,12 +20,30 @@
   </header>
 
   <main>
-    <section class="welcome">
-      <h2>Welcome to MyDocs</h2>
-      <p>All your important documents in one place.</p>
-    </section>
     <div id="banner" class="banner" role="status" hidden></div>
-    <div id="categories"></div>
+
+    <section id="dashboard-view" aria-label="Dashboard">
+      <div class="welcome">
+        <h2>Welcome to MyDocs</h2>
+        <p>All your important documents in one place.</p>
+      </div>
+      <div id="categories" class="category-grid"></div>
+    </section>
+
+    <section id="category-view" aria-labelledby="cv-title" hidden>
+      <div class="cv-header">
+        <button type="button" class="back-btn" id="cv-back" aria-label="Back to dashboard">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20 11H7.8l5.6-5.6L12 4l-8 8 8 8 1.4-1.4L7.8 13H20v-2Z"/></svg>
+        </button>
+        <span class="category-icon" id="cv-icon"></span>
+        <div class="cv-titles">
+          <h2 id="cv-title"></h2>
+          <p id="cv-count"></p>
+        </div>
+        <button type="button" class="btn filled" id="cv-add">Add document</button>
+      </div>
+      <div id="cv-docs"></div>
+    </section>
   </main>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>

@@ -35,6 +35,14 @@ Dashboard v2 (12 categories + demo data) implemented 2026-10-16; see "Dashboard 
 | Native file write/picker/viewer | yes | **NOT verified** |
 | Debug APK | n/a | **NOT built** |
 
+## Dashboard v3: category card grid (2026-10-16)
+- Dashboard shows the 12 categories as cards built once from category data (icon in light-blue circle, name, "N documents" badge, chevron). `.category-grid`: 3 columns from 720px up (equal widths), 2 columns below, 1 column under 340px.
+- Tapping a card opens a single-page category view (back button, icon, title, count, document card grid, empty state, Add document). Navigation uses `history.pushState`/`popstate`, so the Android back button returns to the dashboard; scroll position and card focus are restored.
+- One delegated click listener per container (no per-card handlers re-registered). UI never touches SQLite; it uses the document service / mock repository. Data, schema and seed unchanged.
+- Files changed: `www/index.html`, `www/css/styles.css`, `www/js/app.js`.
+- Verified in browser preview: 12 cards, exactly 3 per row at 1100px with equal widths (335px), 2 columns at 360px, no horizontal overflow (also with a 200-char filename in the category view), correct documents per category, back and history.back return to the dashboard, sample card click shows the sample-data message. `npm test` 23/23 (logic only). Not run on Android.
+- The reference screenshot mentioned in the request was not attached; existing colors/style were kept.
+
 ## Test and build results
 - `npm test`: 23 passed, 0 failed, 0 skipped (logic only; mock file storage; Node's SQLite engine, not the Capacitor plugin). Covers: 12 categories in order, exact demo docs per category, v1->v2 upgrade, no duplicate seeding on relaunch, demo docs cannot open, empty category, plus all earlier tests.
 - Browser preview at 320px width (DOM script): 12 headers in order with counts 4,4,5x10; expand/collapse independent, multiple open at once, `aria-expanded` correct; no horizontal overflow, even with a 200-character filename; demo card click shows the sample message; closed bodies are `inert`.
@@ -69,6 +77,7 @@ Inspected environment, initialised Capacitor/Android, built dashboard, database 
 ## Change history
 - 2026-10-16: initial implementation (see Git history).
 - 2026-10-16: 12-category dashboard, demo data, schema v2, tests 15 -> 23.
+- 2026-10-16: replaced category list with 3-column card grid + category view.
 
 ## Git commits
 See `git log`. Initial scaffold commit: `de74278`.
