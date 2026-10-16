@@ -48,14 +48,16 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
-  <dialog id="rename-dialog">
-    <form method="dialog" id="rename-form">
-      <h3>Rename document</h3>
-      <label for="rename-input">Name</label>
-      <input id="rename-input" type="text" maxlength="120" autocomplete="off" required>
+  <dialog id="name-dialog" aria-labelledby="nd-title">
+    <form id="name-form" novalidate>
+      <h3 id="nd-title">Document name</h3>
+      <p id="nd-file" class="nd-file" hidden></p>
+      <label for="nd-input">Document Name</label>
+      <input id="nd-input" type="text" maxlength="120" autocomplete="off" placeholder="e.g., My Aadhaar Card" aria-describedby="nd-error">
+      <p id="nd-error" class="field-error" role="alert" hidden></p>
       <div class="dialog-actions">
-        <button type="button" class="btn text" id="rename-cancel">Cancel</button>
-        <button type="submit" class="btn filled">Save</button>
+        <button type="button" class="btn text" id="nd-cancel">Cancel</button>
+        <button type="submit" class="btn filled" id="nd-save">Save Document</button>
       </div>
     </form>
   </dialog>

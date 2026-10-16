@@ -89,7 +89,7 @@ main { max-width: 1200px; margin: 0 auto; padding: 16px; }
 .card-icon { width: 40px; height: 40px; flex: none; border-radius: 10px; display: grid; place-items: center; color: #fff; font-size: .7rem; font-weight: 700; margin-bottom: 4px; }
 .card-icon svg { width: 22px; height: 22px; }
 .t-pdf { background: #c62828; } .t-img { background: #2e7d32; } .t-doc { background: #1565c0; } .t-txt { background: #6d4c41; } .t-other { background: #546e7a; }
-.card-name { max-width: 100%; font-weight: 600; font-size: .92rem; overflow-wrap: anywhere; word-break: break-word; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.card-name { max-width: 100%; font-weight: 600; font-size: .92rem; overflow-wrap: anywhere; word-break: break-word; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .card-meta { color: var(--muted); font-size: .75rem; overflow-wrap: anywhere; }
 .badge { font-size: .65rem; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--outline); border-radius: 6px; padding: 0 6px; }
 .card-warn { color: var(--error); font-size: .75rem; }
@@ -114,6 +114,11 @@ dialog::backdrop { background: rgba(0,0,0,.5); }
 dialog h3 { margin: 0 0 12px; }
 dialog label { display: block; font-size: .85rem; color: var(--muted); margin-bottom: 4px; }
 dialog input { width: 100%; font: inherit; padding: 10px; border: 1px solid var(--outline); border-radius: 8px; background: var(--bg); color: inherit; }
+.nd-file { margin: 0 0 12px; color: var(--muted); font-size: .85rem; overflow-wrap: anywhere; }
+.field-error { margin: 6px 0 0; color: var(--error); font-size: .85rem; }
+.field-error[hidden] { display: none; }
+dialog input[aria-invalid="true"] { border-color: var(--error); }
+@media (max-width: 719px) { dialog[open] { margin: auto auto 0; width: 100%; max-width: none; border-radius: 16px 16px 0 0; padding-bottom: calc(20px + env(safe-area-inset-bottom)); } }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 
 @media (min-width: 720px) { main { padding: 24px; } .welcome h2 { font-size: 1.8rem; } }

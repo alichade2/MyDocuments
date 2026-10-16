@@ -28,6 +28,12 @@ export function extensionOf(filename) {
   return m ? m[1].toLowerCase() : '';
 }
 
+/** Suggested display name for a picked file: filename without its extension, trimmed to the max length. */
+export function suggestName(filename) {
+  const base = String(filename ?? '').replace(/\.[A-Za-z0-9]{1,5}$/, '').replace(/\s+/g, ' ').trim();
+  return base.slice(0, MAX_NAME_LENGTH);
+}
+
 export function validateName(name) {
   const trimmed = String(name ?? '').replace(/\s+/g, ' ').trim();
   if (!trimmed) throw new DocumentError('INVALID_NAME', 'Document name cannot be empty.');
@@ -98,6 +104,12 @@ export function createDocumentService({ db, storage, picker, viewer, now = () =>
       }
       const rows = await db.all('SELECT * FROM documents WHERE file_path = ?;', [filePath]);
       return toRecord(rows[0]);
+    },
+
+    /** Step 1 of the upload flow: let the user pick a file. Returns null when cancelled. */
+    async pickFile() {
+      if (!picker) throw new DocumentError('NO_PICKER', 'File picking is not available on this platform.');
+      return (await picker.pick()) ?? null;
     },
 
     async importFromPicker(categoryId) {

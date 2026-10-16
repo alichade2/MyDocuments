@@ -1,6 +1,6 @@
 // UI layer: dashboard card grid + single-page category view. No SQLite access here.
 import { createDatabase, capacitorSqliteDriver, isNativePlatform } from './database.js';
-import { createDocumentService, capacitorAdapters, DEMO_MESSAGE } from './documents.js';
+import { createDocumentService, capacitorAdapters, DEMO_MESSAGE, suggestName, validateName } from './documents.js';
 import { createMockService } from './mock.js';
 
 const $ = (id) => document.getElementById(id);
@@ -120,7 +120,7 @@ function renderDocCard(doc) {
   const type = FILE_TYPES[doc.fileType] ?? { cls: 't-other', label: (doc.fileType || '?').slice(0, 3) };
   const iconEl = el('span', { class: `card-icon ${type.cls}` });
   if (type.icon) iconEl.append(svgIcon(type.icon)); else iconEl.textContent = type.label;
-  const meta = [doc.fileType?.toUpperCase(), formatSize(doc.fileSize), doc.updatedAt?.slice(0, 10)].filter(Boolean).join(' · ');
+  const meta = [doc.fileType?.toUpperCase(), formatSize(doc.fileSize), doc.createdAt?.slice(0, 10)].filter(Boolean).join(' · ');
   const main = el('button', { class: 'card-main', type: 'button', 'data-action': 'open', 'aria-label': `${doc.name}${doc.isDemo ? ' (sample)' : ''}` },
     iconEl,
     el('span', { class: 'card-name' }, doc.name),
@@ -186,12 +186,72 @@ window.addEventListener('popstate', (e) => {
 
 /* ---------- Actions ---------- */
 
+/* Upload: pick file -> ask for a name -> save. Rename reuses the same dialog and validation. */
+let nameFlow = null; // { title, saveLabel, fileLabel, initial, onSave(name) }
+let saving = false;
+
+function openNameDialog(flow) {
+  nameFlow = flow;
+  $('nd-title').textContent = flow.title;
+  $('nd-save').textContent = flow.saveLabel;
+  const f = $('nd-file');
+  f.hidden = !flow.fileLabel;
+  f.textContent = flow.fileLabel ? `File: ${flow.fileLabel}` : '';
+  setNameError('');
+  $('nd-input').value = flow.initial;
+  $('name-dialog').showModal();
+  $('nd-input').select();
+}
+
+function setNameError(msg) {
+  const e = $('nd-error');
+  e.textContent = msg; e.hidden = !msg;
+  $('nd-input').setAttribute('aria-invalid', String(Boolean(msg)));
+}
+
+function setSaving(on) {
+  saving = on;
+  $('nd-save').disabled = on; $('nd-cancel').disabled = on; $('nd-input').disabled = on;
+  $('nd-save').textContent = on ? 'Saving…' : nameFlow?.saveLabel ?? 'Save';
+}
+
+async function submitName(e) {
+  e.preventDefault();
+  if (saving || !nameFlow) return; // prevents double submission
+  let name;
+  try { name = validateName($('nd-input').value); } catch (err) {
+    setNameError(err.code === 'INVALID_NAME' && !$('nd-input').value.trim() ? 'Please enter a document name.' : err.message);
+    $('nd-input').focus();
+    return;
+  }
+  setSaving(true);
+  try {
+    const message = await nameFlow.onSave(name);
+    $('name-dialog').close();
+    showMessage(message);
+  } catch (err) {
+    console.error('MyDocs error:', err?.code || err?.name || 'error');
+    setNameError(err?.message || 'Could not save. Please try again.');
+  } finally {
+    setSaving(false);
+  }
+}
+
 const addDoc = () => guarded(async () => {
-  const id = view.categoryId;
-  if (await service.importFromPicker(id)) await reloadCategory(id);
+  if (saving || $('name-dialog').open) return;
+  const categoryId = view.categoryId; // captured: the upload belongs to the category it was started from
+  const file = await service.pickFile();
+  if (!file) return; // user cancelled the picker
+  openNameDialog({
+    title: 'Name your document', saveLabel: 'Save Document', fileLabel: file.name, initial: suggestName(file.name),
+    onSave: async (name) => {
+      await service.importFile(categoryId, file, name);
+      await reloadCategory(categoryId);
+      return `Saved "${name}"`;
+    },
+  });
 });
 
-let renaming = null;
 function handleDocAction(e) {
   const btn = e.target.closest('[data-action]');
   const cardEl = btn?.closest('[data-doc-id]');
@@ -203,10 +263,10 @@ function handleDocAction(e) {
     if (doc.isDemo) showMessage(DEMO_MESSAGE); // never pretend a sample file exists
     else guarded(() => service.open(doc.id));
   } else if (action === 'rename') {
-    renaming = doc;
-    $('rename-input').value = doc.name;
-    $('rename-dialog').showModal();
-    $('rename-input').select();
+    openNameDialog({
+      title: 'Rename document', saveLabel: 'Save', initial: doc.name,
+      onSave: async (name) => { await service.rename(doc.id, name); await reloadCategory(doc.categoryId); return 'Document renamed'; },
+    });
   } else if (action === 'delete') {
     guarded(async () => {
       const msg = doc.isDemo ? `Remove sample document "${doc.name}"?` : `Delete "${doc.name}"? This removes the stored file too.`;
@@ -226,14 +286,10 @@ function wireEvents() {
   $('cv-docs').addEventListener('click', handleDocAction);
   $('cv-back').addEventListener('click', goBack);
   $('cv-add').addEventListener('click', addDoc);
-  $('rename-cancel').addEventListener('click', () => $('rename-dialog').close());
-  $('rename-form').addEventListener('submit', () => guarded(async () => {
-    if (!renaming) return;
-    const doc = renaming;
-    renaming = null;
-    await service.rename(doc.id, $('rename-input').value);
-    await reloadCategory(doc.categoryId);
-  }));
+  $('nd-cancel').addEventListener('click', () => $('name-dialog').close());
+  $('name-form').addEventListener('submit', submitName);
+  $('name-dialog').addEventListener('cancel', (e) => { if (saving) e.preventDefault(); });
+  $('nd-input').addEventListener('input', () => setNameError(''));
 }
 
 async function init() {

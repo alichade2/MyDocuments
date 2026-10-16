@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { createDatabase, DEFAULT_CATEGORIES, SCHEMA_VERSION } from '../www/js/database.js';
-import { createDocumentService, DocumentError, DOCS_DIR, DEMO_MESSAGE } from '../www/js/documents.js';
+import { createDocumentService, DocumentError, DOCS_DIR, DEMO_MESSAGE, suggestName } from '../www/js/documents.js';
 import { CATEGORIES } from '../www/js/seed.js';
 import { createMockService } from '../www/js/mock.js';
 
@@ -268,4 +268,46 @@ test('mock repository mirrors the seed data and rejects opening samples', async 
     assert.equal(docs.length, spec.docs.length);
   }
   await assert.rejects(mock.open(1), { code: 'DEMO_DOCUMENT' });
+});
+
+test('suggestName strips the extension, tidies whitespace and caps length', () => {
+  assert.equal(suggestName('Aadhaar  Card.PDF'), 'Aadhaar Card');
+  assert.equal(suggestName('scan.final.v2.jpeg'), 'scan.final.v2');
+  assert.equal(suggestName('noext'), 'noext');
+  assert.equal(suggestName(`${'x'.repeat(200)}.pdf`).length, 120);
+  assert.equal(suggestName(undefined), '');
+});
+
+test('upload with a custom name: name and original filename stored separately, content and extension kept', async () => {
+  const { svc, storage } = await setup();
+  const file = { name: 'IMG_2041.PNG', mimeType: 'image/png', size: 1234, data: 'SEVMTE8=' };
+  const doc = await svc.importFile(3, file, '  My Aadhaar   Card ');
+  assert.equal(doc.name, 'My Aadhaar Card');
+  assert.equal(doc.originalFilename, 'IMG_2041.PNG');
+  assert.equal(doc.fileType, 'png');
+  assert.ok(doc.filePath.endsWith('.png'));
+  assert.equal(storage.files.get(doc.filePath), 'SEVMTE8='); // content untouched
+  assert.equal(doc.categoryId, 3);
+  assert.equal((await real(svc, 3)).length, 1); // exactly one record, in the right category
+  assert.equal((await real(svc, 1)).length, 0);
+  const reopened = await real(svc, 3); // "reopen the category"
+  assert.equal(reopened[0].name, 'My Aadhaar Card');
+});
+
+test('upload and rename reject empty / whitespace names', async () => {
+  const { svc, storage } = await setup();
+  await assert.rejects(svc.importFile(1, pdf(), ''), { code: 'INVALID_NAME' });
+  await assert.rejects(svc.importFile(1, pdf(), ' 	 '), { code: 'INVALID_NAME' });
+  assert.equal(storage.files.size, 0);
+  const doc = await svc.importFile(1, pdf(), 'Ok');
+  await assert.rejects(svc.rename(doc.id, '   '), { code: 'INVALID_NAME' });
+  assert.equal((await svc.get(doc.id)).name, 'Ok');
+});
+
+test('pickFile returns null on cancel and the file otherwise', async () => {
+  const f = pdf();
+  const mk = (r) => setup({ picker: { pick: async () => r } });
+  assert.equal(await (await mk(null)).svc.pickFile(), null);
+  assert.deepEqual(await (await mk(f)).svc.pickFile(), f);
+  await assert.rejects(setup().then((x) => x.svc.pickFile()), { code: 'NO_PICKER' });
 });

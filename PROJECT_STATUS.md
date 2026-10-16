@@ -58,6 +58,14 @@ Dashboard v2 (12 categories + demo data) implemented 2026-10-16; see "Dashboard 
 - Not yet verified on device: opening a category, rename/delete, real file import/preview, relaunch idempotency, v1->v2 upgrade on device.
 - Note: debug builds echo SQLite query results (incl. document names) to Logcat via the plugin/Capacitor console; release builds should not.
 
+## Upload with document name (2026-10-16)
+- Flow: Add document -> native picker (`service.pickFile()`, null on cancel) -> name dialog (bottom sheet on phones) prefilled via `suggestName()` (filename minus extension) -> Save Document -> `service.importFile(categoryId, file, name)`. The category is captured when the flow starts. Rename reuses the same dialog and `validateName` rules.
+- Validation: empty/whitespace name shows "Please enter a document name."; max 120 chars. Save/Cancel/input are disabled while saving and re-submits are ignored. Success and error toasts shown.
+- Stored separately: `documents.name` (display) vs `original_filename`; stored file keeps its extension and content. Cards show the custom name (2-line clamp) and the upload date (`created_at`).
+- Files changed: `www/index.html`, `www/css/styles.css`, `www/js/app.js`, `www/js/documents.js`, `www/js/mock.js`, `tests/documents.test.mjs`.
+- Verified: `npm test` 27/27; browser preview (360px): prefill, empty-name error, cancel saves nothing, double-submit creates one record, correct category/count, survives back + reopen, rename + empty rename error, no overflow. Debug APK built, installed and launched on the emulator with no console/runtime errors.
+- NOT verified on device: the real Android file picker -> name dialog -> save -> reopen. The browser preview uses a mock picker with a fixed sample file.
+
 ## Known issues and blockers
 1. (Resolved) Android SDK/emulator now installed; build with `JAVA_HOME` = JDK 21 and `ANDROID_HOME` set works.
 3. Unverified assumptions to check on device: FilePicker `readData` result, `Filesystem.getUri` path accepted by `FileViewer.openDocumentFromLocalPath`, CapacitorSQLite `isConnection`/transaction calls with `transaction:false`, and `Capacitor.Plugins.<Name>` proxies without a bundler.
@@ -82,6 +90,7 @@ Inspected environment, initialised Capacitor/Android, built dashboard, database 
 ## Change history
 - 2026-10-16: initial implementation (see Git history).
 - 2026-10-16: 12-category dashboard, demo data, schema v2, tests 15 -> 23.
+- 2026-10-16: upload asks for a document name (shared with rename), tests 23 -> 27.
 - 2026-10-16: replaced category list with 3-column card grid + category view.
 
 ## Git commits
