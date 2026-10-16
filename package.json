@@ -1,0 +1,34 @@
+{
+  "name": "mydocuments",
+  "version": "1.0.0",
+  "description": "MyDocs - lightweight document manager (Capacitor + SQLite)",
+  "main": "www/js/app.js",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "dev": "node scripts/dev-server.mjs",
+    "sync": "cap sync android",
+    "open:android": "cap open android",
+    "apk:debug": "cap sync android && cd android && gradlew.bat assembleDebug"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alichade2/MyDocuments.git"
+  },
+  "keywords": [],
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/alichade2/MyDocuments/issues"
+  },
+  "homepage": "https://github.com/alichade2/MyDocuments#readme",
+  "dependencies": {
+    "@capacitor-community/sqlite": "^8.1.1",
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/file-viewer": "^2.0.4",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capawesome/capacitor-file-picker": "^8.1.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.3"
+  }
+}

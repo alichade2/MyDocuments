@@ -1,0 +1,6 @@
+﻿{
+  "appId": "com.alichade.mydocs",
+  "appName": "MyDocs",
+  "webDir": "www",
+  "android": { "allowMixedContent": false }
+}

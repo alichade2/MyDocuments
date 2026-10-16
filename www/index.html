@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1f5fbf">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self' http://localhost https://localhost capacitor://localhost">
+  <title>MyDocs</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="app-bar">
+    <h1>MyDocs</h1>
+  </header>
+
+  <main>
+    <section class="welcome">
+      <h2>Welcome to MyDocs</h2>
+      <p>Keep your important documents organised and on your device.</p>
+    </section>
+    <div id="banner" class="banner" role="status" hidden></div>
+    <div id="categories"></div>
+  </main>
+
+  <div id="toast" class="toast" role="alert" hidden></div>
+
+  <dialog id="rename-dialog">
+    <form method="dialog" id="rename-form">
+      <h3>Rename document</h3>
+      <label for="rename-input">Name</label>
+      <input id="rename-input" type="text" maxlength="120" autocomplete="off" required>
+      <div class="dialog-actions">
+        <button type="button" class="btn text" id="rename-cancel">Cancel</button>
+        <button type="submit" class="btn filled">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
