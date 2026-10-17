@@ -3,6 +3,7 @@
 import { CATEGORIES, demoDocuments } from './seed.js';
 import { DEMO_MESSAGE, DocumentError, validateName, extensionOf, SUPPORTED_TYPES, IMAGE_TYPES } from './documents.js';
 import { createThumbnail } from './images.js';
+import { matchesDocument, normalizeQuery } from './search.js';
 
 /** Draws a fake "photographed document" so the capture flow can be exercised without a camera. */
 function fakePhoto(n) {
@@ -58,6 +59,14 @@ export function createMockService() {
       const d = docs.find((x) => x.id === id);
       if (d?.isDemo) throw new DocumentError('DEMO_DOCUMENT', DEMO_MESSAGE);
       return full.get(id);
+    },
+    search: async (query, { limit = 100 } = {}) => {
+      const text = normalizeQuery(query).toLowerCase();
+      const byId = new Map(categories.map((c) => [c.id, c]));
+      return docs.filter((d) => matchesDocument(d, query))
+        .sort((a, b) => (b.name.toLowerCase().startsWith(text) - a.name.toLowerCase().startsWith(text)) || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) || a.id - b.id)
+        .slice(0, limit)
+        .map((d) => { const c = byId.get(d.categoryId); return { ...d, categoryName: c.name, categorySlug: c.slug, categoryIcon: c.icon }; });
     },
     shareDocument: async (id) => {
       const d = docs.find((x) => x.id === id);

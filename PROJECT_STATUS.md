@@ -91,7 +91,7 @@ Dashboard v2 (12 categories + demo data) implemented 2026-10-16; see "Dashboard 
 - Scroll code ported from `window` to the scroller: `app.js` (save/restore dashboard position, reset on opening a category) and `transitions.js` (collapse restores `scroller.scrollTop`). The category open/close animation is unchanged (its overlay is `position: fixed` below the header).
 - Files changed: `www/index.html`, `www/css/styles.css`, `www/js/app.js`, `www/js/transitions.js`.
 - Verified: browser preview 360px: header top 0 / bottom 56 after scrolling 500px, first card scrolled under it, document not scrollable, no horizontal overflow; open category from scrollTop 300 and back restores 300 and card focus, no leftover animations. Emulator: swiped to the bottom with the header fixed and all 12 cards reachable; opened Identity Documents and pressed Back: identical scroll position restored. `npm test` 34/34. Debug APK builds and installs.
-- Not verified: very fast fling on a physical device; landscape/tablet on device; the header's search field is still a disabled placeholder (no search functionality exists yet).
+- Not verified: very fast fling on a physical device; landscape/tablet on device; (search is now implemented).
 
 ## Document sharing (2026-10-17)
 - UI: every document card now has icon actions Rename (pencil), Share, Delete (accessible labels, 44px targets; three fit in a 2-column card at 320px). Sample documents show a "no file to share" message.
@@ -102,13 +102,23 @@ Dashboard v2 (12 categories + demo data) implemented 2026-10-16; see "Dashboard 
 - Verified: `npm test` 38/38 (share file naming, staged copy, single temp copy, cancel, missing file, demo, no sharer, failures, original untouched). Browser preview: three icons fit at 320px without overlap; sample share message. Emulator (Pixel_10_Pro AVD): Share on an uploaded JPG and on a real PDF opened the native Sharesheet (preview "Sharing image" / "Sharing 1 file: Lease_Agreement.pdf") listing Quick Share, Gmail, Drive, Bluetooth, Messages, Maps, Photos, Print; `dumpsys` showed `content://com.alichade.mydocs.fileprovider/my_cache_images/share/Aadhaar_Card.jpg` and `.../Lease_Agreement.pdf` with a read grant; the shared copies were byte-identical (SHA-1) to the stored originals and the originals were unchanged; Google Messages accepted the file (recipient picker opened); backing out of the sheet is clean; with the stored file removed, Share shows "missing from storage"; Rename dialog and Delete (including a record whose file was missing) work; fixed header, scrolling and animations unaffected.
 - NOT verified: WhatsApp (not installable on this emulator); Gmail compose with the attachment (Gmail needs a Google account sign-in, which was not done); Drive upload; Bluetooth/Quick Share transfers; a camera-captured photo through the share path (the emulator camera cannot be driven; captured photos are stored as ordinary `.jpg` documents and use the same code path as the uploaded JPG); the "no compatible app" path on a device (unit-tested mapping only); a physical device.
 
+## Global search (2026-10-17)
+- Header: only a search icon is shown. Tapping it grows an input out of the icon (anchored to the right edge, width animated 36px -> field width in 300 ms with Material emphasized easing; icon fades, field contents fade in, brand fades on screens < 600px). The input is focused inside the tap so the keyboard opens at once. Clear (X) appears when there is text; the back arrow closes. Close collapses the field, clears the query and results and restores the dashboard/category and its scroll position. Header height stays 56px and stays fixed.
+- Matching (`service.search`, `www/js/search.js`): one parameterised SQLite query over ALL categories (`documents JOIN categories`): case-insensitive partial match on display name and original file name (`LIKE ... ESCAPE`, so `%` and `_` are literal), plus created date and expiry date when the query parses as a date. Dates are matched as ISO prefixes: `2026-10-17`, `17/10/2026`, `17-10-2026`, `17.10.2026`, `10/17/2026` (only when dd/mm is impossible), `2026-10`, `10/2026`, `2026`, `17/10` (any year), `17 Oct 2026`, `Oct 17, 2026`, `October 2026`. Ranking: names starting with the query first, then name, then id; limit 100. Every document is its own result keyed by its unique id, with category name, date, type, thumbnail (for photos) and a Sample badge for demo data; same-name documents are never merged.
+- Live updates: input event -> 180 ms debounce -> query; each keystroke bumps a sequence number so results from older queries are dropped (no stale results); a spinner shows only if a query takes > 250 ms; empty query shows the hint, not all documents; no matches shows "No documents found" with a hint; results are announced to screen readers (`aria-live`).
+- Tap a result: opens that exact document by id using the existing viewers (images full-screen, other files via the system viewer, samples show the sample message). Android Back order: dialogs/viewer, then search, then category, then exit.
+- Preview/in-memory repository uses the same matching rules (`matchesDocument`); a test checks it agrees with SQLite.
+- Files changed: `www/js/search.js` (new), `www/js/documents.js`, `www/js/mock.js`, `www/js/app.js`, `www/index.html`, `www/css/styles.css`, `tests/documents.test.mjs`.
+- Verified: `npm test` 46/46 (date formats, partial/case/trim, cross-category, ranking, duplicates, real vs demo, expiry date, `%`/`_`/SQL injection, original filename, rename/delete reflected, preview/SQLite parity). Browser preview (360px): expand animation frames, focus, live typing (A -> Ad -> Aadhaar), duplicate "Electricity Bill" as two results with different categories and ids, date queries, no-result state, rapid typing keeps only the last query's results, clear, close restores scroll 250, re-open works. Emulator: icon-only header; expanded field with keyboard and search key; "aadhaar" returns the sample (Identity Documents) and my real uploaded photo (Personal Documents) as two results; tapping the real one opened the photo viewer; Back closed the viewer, next Back closed search to the dashboard; `16/10/2026` found the real photo via SQLite.
+- Limits / not verified: SQLite `LOWER()` is ASCII-only, so case-insensitive matching of non-ASCII capitals (e.g. accented letters) is not guaranteed; `updated_at` is not searched (rename would otherwise change matches); no physical device; not tested with thousands of documents (query is a single indexed-table scan with LIMIT 100).
+
 ## Known issues and blockers
 1. (Resolved) Android SDK/emulator now installed; build with `JAVA_HOME` = JDK 21 and `ANDROID_HOME` set works.
 3. Unverified assumptions to check on device: FilePicker `readData` result, `Filesystem.getUri` path accepted by `FileViewer.openDocumentFromLocalPath`, CapacitorSQLite `isConnection`/transaction calls with `transaction:false`, and `Capacitor.Plugins.<Name>` proxies without a bundler.
 4. `npm audit` reports vulnerabilities in dependencies; not yet reviewed.
 5. Expiry date column exists but has no UI yet.
 6. Requested path `...\Mydocs` / repo `alichade2/MyDocs` do not exist; work was done in the existing `MyDocuments` project and pushed to `alichade2/MyDocuments`.
-7. Search field is a disabled placeholder.
+7. (Resolved) Search is implemented, see "Global search".
 
 ## Files created or modified
 `package.json`, `package-lock.json`, `capacitor.config.json`, `.gitignore`, `README.md`, `PROJECT_STATUS.md`, `scripts/dev-server.mjs`, `www/index.html`, `www/css/styles.css`, `www/js/{app,database,documents,mock,seed}.js`, `tests/documents.test.mjs`, `android/` (generated by Capacitor).
@@ -126,6 +136,7 @@ Inspected environment, initialised Capacitor/Android, built dashboard, database 
 ## Change history
 - 2026-10-16: initial implementation (see Git history).
 - 2026-10-16: 12-category dashboard, demo data, schema v2, tests 15 -> 23.
+- 2026-10-17: expandable global search (name + date), tests 38 -> 46.
 - 2026-10-17: document sharing via the native Sharesheet, icon actions on cards, tests 34 -> 38.
 - 2026-10-17: fixed header with an independent scroll container.
 - 2026-10-17: animated category open/close (container transform), Android Back handling via @capacitor/app.

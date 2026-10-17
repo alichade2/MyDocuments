@@ -9,14 +9,23 @@
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
-  <header class="app-bar">
-    <svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M6 2h9l5 5v15H6V2Zm8 1.5V8h4.5L14 3.5ZM9 12h8v1.5H9V12Zm0 3h8v1.5H9V15Z"/></svg>
-    <h1>MyDocs</h1>
-    <label class="search" title="Search is coming soon">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M15.5 14h-.8l-.3-.3A6.5 6.5 0 1 0 14 15.5l.3.3v.8l5 5 1.5-1.5-5-5Zm-6 0a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9Z"/></svg>
-      <span class="visually-hidden">Search documents</span>
-      <input type="search" placeholder="Search (coming soon)" disabled>
-    </label>
+  <header class="app-bar" id="app-bar">
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M6 2h9l5 5v15H6V2Zm8 1.5V8h4.5L14 3.5ZM9 12h8v1.5H9V12Zm0 3h8v1.5H9V15Z"/></svg>
+      <h1>MyDocs</h1>
+    </div>
+    <button type="button" class="hdr-btn" id="search-open" aria-label="Search documents" aria-expanded="false" aria-controls="search-bar">
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M15.5 14h-.8l-.3-.3A6.5 6.5 0 1 0 14 15.5l.3.3v.8l5 5 1.5-1.5-5-5Zm-6 0a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9Z"/></svg>
+    </button>
+    <form class="search-bar" id="search-bar" role="search" novalidate hidden>
+      <button type="button" class="hdr-btn" id="search-close" aria-label="Close search">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20 11H7.8l5.6-5.6L12 4l-8 8 8 8 1.4-1.4L7.8 13H20v-2Z"/></svg>
+      </button>
+      <input id="search-input" type="search" placeholder="Search by name or date" aria-label="Search documents by name or date" enterkeyhint="search" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <button type="button" class="hdr-btn" id="search-clear" aria-label="Clear search" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M19 6.4 17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12 19 6.4Z"/></svg>
+      </button>
+    </form>
   </header>
 
   <div id="scroller" class="scroller">
@@ -29,6 +38,11 @@
         <p>All your important documents in one place.</p>
       </div>
       <div id="categories" class="category-grid"></div>
+    </section>
+
+    <section id="search-view" aria-label="Search results" hidden>
+      <p id="search-status" class="search-status" role="status" aria-live="polite"></p>
+      <ul id="search-results" class="results"></ul>
     </section>
 
     <section id="category-view" aria-labelledby="cv-title" hidden>

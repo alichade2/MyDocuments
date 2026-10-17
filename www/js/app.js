@@ -4,6 +4,7 @@ import { createDocumentService, capacitorAdapters, DEMO_MESSAGE, IMAGE_TYPES, su
 import { createMockService } from './mock.js';
 import { createThumbnail } from './images.js';
 import { prefersReducedMotion, expandCategory, collapseCategory } from './transitions.js';
+import { normalizeQuery } from './search.js';
 
 const $ = (id) => document.getElementById(id);
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -381,6 +382,13 @@ function shareDoc(doc) {
   guarded(() => service.shareDocument(doc.id)).finally(() => { sharing = false; });
 }
 
+/** Opens exactly this document (by id): images in the full-screen viewer, other files in the system viewer. */
+function openDocument(doc) {
+  if (doc.isDemo) showMessage(DEMO_MESSAGE); // never pretend a sample file exists
+  else if (IMAGE_TYPES.has(doc.fileType)) viewImage(doc);
+  else guarded(() => service.open(doc.id));
+}
+
 function handleDocAction(e) {
   const btn = e.target.closest('[data-action]');
   const cardEl = btn?.closest('[data-doc-id]');
@@ -389,9 +397,7 @@ function handleDocAction(e) {
   if (!doc) return;
   const action = btn.dataset.action;
   if (action === 'open') {
-    if (doc.isDemo) showMessage(DEMO_MESSAGE); // never pretend a sample file exists
-    else if (IMAGE_TYPES.has(doc.fileType)) viewImage(doc);
-    else guarded(() => service.open(doc.id));
+    openDocument(doc);
   } else if (action === 'rename') {
     openNameDialog({
       title: 'Rename document', saveLabel: 'Save', initial: doc.name,
@@ -410,6 +416,7 @@ function handleDocAction(e) {
 }
 
 function wireEvents() {
+  wireSearch();
   // One delegated listener per container; nothing is re-registered when views change.
   $('categories').addEventListener('click', (e) => {
     const card = e.target.closest('[data-category-id]');
@@ -430,6 +437,165 @@ function wireEvents() {
   $('nd-input').addEventListener('input', () => setNameError(''));
 }
 
+/* ---------- Global search ---------- */
+
+const SEARCH_DEBOUNCE_MS = 180;
+const SEARCH_MS = 300;
+const search = { active: false, seq: 0, debounce: 0, spinnerTimer: 0, scroll: 0, results: new Map() };
+
+function highlight(text, q) {
+  const i = q ? text.toLowerCase().indexOf(q.toLowerCase()) : -1;
+  if (i < 0) return [document.createTextNode(text)];
+  return [document.createTextNode(text.slice(0, i)), el('mark', {}, text.slice(i, i + q.length)), document.createTextNode(text.slice(i + q.length))];
+}
+
+function renderResult(doc, q) {
+  const type = FILE_TYPES[doc.fileType] ?? { cls: 't-other', label: (doc.fileType || '?').slice(0, 3) };
+  const iconEl = el('span', { class: `card-icon ${type.cls}` });
+  if (type.icon) iconEl.append(svgIcon(type.icon)); else iconEl.textContent = type.label;
+  let leading = iconEl;
+  if (doc.thumbPath) {
+    const img = el('img', { class: 'result-thumb', alt: '', loading: 'lazy', decoding: 'async' });
+    img.addEventListener('error', () => img.replaceWith(iconEl), { once: true });
+    service.thumbnailSrc(doc).then((src) => { if (src) img.src = src; else img.replaceWith(iconEl); }).catch(() => img.replaceWith(iconEl));
+    leading = img;
+  }
+  const meta = el('span', { class: 'result-meta' }, `${doc.categoryName} · ${doc.createdAt?.slice(0, 10) ?? ''} · ${(doc.fileType ?? '').toUpperCase()}`);
+  if (doc.isDemo) meta.append(el('span', { class: 'badge' }, 'Sample'));
+  const name = el('span', { class: 'result-name' });
+  name.append(...highlight(doc.name, q));
+  return el('li', {}, el('button', {
+    type: 'button', class: 'result', 'data-doc-id': String(doc.id),
+    'aria-label': `${doc.name}, ${doc.categoryName}, ${doc.createdAt?.slice(0, 10) ?? ''}${doc.isDemo ? ', sample' : ''}`,
+  }, leading, el('span', { class: 'result-text' }, name, meta)));
+}
+
+function setSearchStatus(...nodes) { $('search-status').replaceChildren(...nodes); }
+
+function renderSearchHint() {
+  $('search-results').replaceChildren();
+  search.results.clear();
+  setSearchStatus(document.createTextNode('Search by document name or date, e.g. "passport" or 17/10/2026.'));
+}
+
+function renderSearchResults(rows, q) {
+  search.results = new Map(rows.map((d) => [d.id, d]));
+  const list = $('search-results');
+  if (!rows.length) {
+    list.replaceChildren();
+    setSearchStatus(el('span', {}, el('strong', {}, 'No documents found'), document.createTextNode(' - check the name or try a date like 2026-10-17.')));
+    return;
+  }
+  list.replaceChildren(...rows.map((d) => renderResult(d, q)));
+  setSearchStatus(document.createTextNode(`${rows.length} ${rows.length === 1 ? 'document' : 'documents'} found`));
+}
+
+async function runSearch(q) {
+  const mine = ++search.seq; // any older in-flight search is now stale
+  clearTimeout(search.spinnerTimer);
+  search.spinnerTimer = setTimeout(() => { if (mine === search.seq) setSearchStatus(el('span', { class: 'spinner', 'aria-hidden': 'true' }), document.createTextNode('Searching...')); }, 250);
+  try {
+    const rows = await service.search(q);
+    if (mine !== search.seq) return; // a newer query (or closing search) superseded this one
+    clearTimeout(search.spinnerTimer);
+    renderSearchResults(rows, q);
+  } catch (err) {
+    if (mine !== search.seq) return;
+    clearTimeout(search.spinnerTimer);
+    console.error('MyDocs search error:', err?.code || err?.name || 'error');
+    setSearchStatus(document.createTextNode('Search failed. Please try again.'));
+  }
+}
+
+function scheduleSearch({ immediate = false } = {}) {
+  clearTimeout(search.debounce);
+  search.seq++; // discard results of any query still in flight
+  clearTimeout(search.spinnerTimer);
+  const q = normalizeQuery($('search-input').value);
+  $('search-clear').hidden = $('search-input').value === '';
+  if (!q) { renderSearchHint(); return; }
+  search.debounce = setTimeout(() => runSearch(q), immediate ? 0 : SEARCH_DEBOUNCE_MS);
+}
+
+function openSearch() {
+  if (search.active || motion.busy) return;
+  search.active = true;
+  search.scroll = $('scroller').scrollTop;
+  document.body.classList.add('searching');
+  $('search-view').hidden = false;
+  $('scroller').scrollTop = 0;
+  renderSearchHint();
+
+  const bar = $('search-bar');
+  const iconBtn = $('search-open');
+  iconBtn.setAttribute('aria-expanded', 'true');
+  const from = iconBtn.getBoundingClientRect();
+  bar.hidden = false;
+  const to = bar.getBoundingClientRect();
+  $('search-input').focus(); // inside the tap handler, so the keyboard opens right away
+  if (!prefersReducedMotion()) {
+    bar.animate([{ width: `${from.width}px` }, { width: `${to.width}px` }], { duration: SEARCH_MS, easing: 'cubic-bezier(0.2, 0, 0, 1)' });
+    for (const child of bar.children) child.animate([{ opacity: 0 }, { opacity: 0, offset: 0.3 }, { opacity: 1 }], { duration: SEARCH_MS, easing: 'linear' });
+    iconBtn.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 120, fill: 'forwards' });
+  } else {
+    iconBtn.style.visibility = 'hidden';
+  }
+}
+
+function closeSearch() {
+  if (!search.active) return;
+  search.active = false;
+  search.seq++; // supersede any running search
+  clearTimeout(search.debounce);
+  clearTimeout(search.spinnerTimer);
+  const bar = $('search-bar');
+  const iconBtn = $('search-open');
+  const from = bar.getBoundingClientRect();
+  const to = iconBtn.getBoundingClientRect();
+  $('search-input').blur();
+  iconBtn.setAttribute('aria-expanded', 'false');
+
+  // Put the dashboard/category (and its scroll position) back right away; the field collapses over it.
+  document.body.classList.remove('searching');
+  $('search-view').hidden = true;
+  $('scroller').scrollTop = search.scroll;
+  $('search-results').replaceChildren();
+  search.results.clear();
+
+  const done = () => {
+    bar.hidden = true;
+    $('search-input').value = '';
+    $('search-clear').hidden = true;
+    iconBtn.getAnimations().forEach((a) => a.cancel());
+    bar.getAnimations({ subtree: true }).forEach((a) => a.cancel()); // drop fill-forwards fades so a re-open starts clean
+    iconBtn.style.visibility = '';
+    iconBtn.focus({ preventScroll: true });
+  };
+  if (prefersReducedMotion()) { done(); return; }
+  const collapse = bar.animate([{ width: `${from.width}px` }, { width: `${to.width}px` }], { duration: SEARCH_MS - 50, easing: 'cubic-bezier(0.4, 0, 0.2, 1)' });
+  for (const child of bar.children) child.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 120, fill: 'forwards' });
+  iconBtn.animate([{ opacity: 0 }, { opacity: 0, offset: 0.5 }, { opacity: 1 }], { duration: SEARCH_MS - 50, fill: 'forwards' });
+  Promise.race([collapse.finished, new Promise((r) => setTimeout(r, SEARCH_MS + 300))]).then(done, done);
+}
+
+function wireSearch() {
+  $('search-open').addEventListener('click', openSearch);
+  $('search-close').addEventListener('click', closeSearch);
+  $('search-clear').addEventListener('click', () => {
+    $('search-input').value = '';
+    scheduleSearch({ immediate: true });
+    $('search-input').focus();
+  });
+  $('search-input').addEventListener('input', () => scheduleSearch());
+  $('search-input').addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSearch(); });
+  $('search-bar').addEventListener('submit', (e) => { e.preventDefault(); $('search-input').blur(); }); // results are already live
+  $('search-results').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-doc-id]');
+    const doc = btn && search.results.get(Number(btn.dataset.docId)); // by unique id, never by name
+    if (doc) openDocument(doc);
+  });
+}
+
 /** Capacitor 8 does not handle the system Back button itself: dialogs first, then category -> dashboard, then exit. */
 function wireBackButton() {
   const appPlugin = globalThis.Capacitor?.Plugins?.App;
@@ -438,6 +604,7 @@ function wireBackButton() {
     if ($('viewer-dialog').open) { $('vw-close').click(); return; }
     if ($('name-dialog').open) { if (!saving) closeNameDialog(); return; }
     if ($('preview-dialog').open) { releasePending(); $('preview-dialog').close(); return; }
+    if (search.active) { closeSearch(); return; }
     if (view.categoryId != null) { goBack(); return; }
     appPlugin.exitApp();
   });

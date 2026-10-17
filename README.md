@@ -11,6 +11,7 @@ Lightweight document manager: vanilla HTML/CSS/ES modules, SQLite metadata, file
 | `www/js/database.js` | SQLite driver, schema/migrations (`PRAGMA user_version`), transactions, default categories |
 | `www/js/documents.js` | Document service (import, list, rename, delete, open, reconcile) + Capacitor adapters |
 | `www/js/seed.js` | The 12 categories and demo document metadata |
+| `www/js/search.js` | Search query normalisation and date parsing (pure functions) |
 | `www/js/transitions.js` | Category open/close container-transform animation (Web Animations API) |
 | `www/js/images.js` | Thumbnail generation (browser canvas) |
 | `www/js/mock.js` | In-memory sample data used **only** in a desktop browser |
@@ -65,6 +66,10 @@ The dashboard shows 12 categories (see `seed.js`). Each ships with sample docume
 ## Camera
 
 "Capture with Camera" opens the system camera app (no CAMERA permission is requested), previews the photo, asks for a name, then saves a JPEG plus a small thumbnail in app-private storage. In the browser preview a generated sample image stands in for the camera.
+
+## Search
+
+The header search icon expands into a field. Results update as you type across all categories, by name (partial, case-insensitive) or by date (`2026-10-17`, `17/10/2026`, `17 Oct 2026`, ...). Documents with the same name are listed separately with their category and date.
 
 ## Sharing
 

@@ -7,6 +7,7 @@ import { createDatabase, DEFAULT_CATEGORIES, SCHEMA_VERSION } from '../www/js/da
 import { createDocumentService, DocumentError, DOCS_DIR, THUMBS_DIR, DEMO_MESSAGE, suggestName, shareFileName } from '../www/js/documents.js';
 import { CATEGORIES } from '../www/js/seed.js';
 import { createMockService } from '../www/js/mock.js';
+import { parseDateQuery, normalizeQuery, escapeLike, matchesDocument } from '../www/js/search.js';
 
 function nodeDriver(file = ':memory:') {
   const sqlite = new DatabaseSync(file);
@@ -459,4 +460,96 @@ test('reconcile clears the temporary share copy', async () => {
   assert.equal(storage.staged.length, 1);
   await svc.reconcile();
   assert.equal(storage.staged.length, 0);
+});
+
+test('parseDateQuery understands common numeric and textual date formats', () => {
+  const cases = {
+    '2026-10-17': '2026-10-17%', '2026/10/17': '2026-10-17%', '17/10/2026': '2026-10-17%', '17-10-2026': '2026-10-17%',
+    '17.10.2026': '2026-10-17%', '7/3/2026': '2026-03-07%', '10/17/2026': '2026-10-17%', // mm/dd only when dd/mm is impossible
+    '2026-10': '2026-10-%', '10/2026': '2026-10-%', '2026': '2026-%',
+    '17/10': '%-10-17T%', '10/17': '%-10-17T%',
+    '17 Oct 2026': '2026-10-17%', '17 october 2026': '2026-10-17%', 'Oct 17, 2026': '2026-10-17%', 'sept 2026': '2026-09-%', 'October 2026': '2026-10-%',
+  };
+  for (const [input, expected] of Object.entries(cases)) assert.equal(parseDateQuery(input), expected, input);
+  for (const bad of ['31/02/2026', '2026-13-01', '99/99', '1850', 'aadhaar', '17 foo 2026', '', '   ']) assert.equal(parseDateQuery(bad), null, bad);
+  assert.equal(normalizeQuery('  a   b  '), 'a b');
+  assert.equal(escapeLike('50%_x\\'), '50\\%\\_x\\\\');
+});
+
+test('search: partial, case-insensitive, trimmed, across all categories, ranked by prefix', async () => {
+  const { svc } = await setup();
+  assert.deepEqual((await svc.search('  AADHAAR ')).map((d) => d.name), ['Aadhaar Card']);
+  assert.deepEqual((await svc.search('marksheet')).map((d) => [d.name, d.categoryName]), [['Semester Marksheet', 'Educational Documents']]);
+  const pass = await svc.search('pass');
+  assert.deepEqual(pass.map((d) => d.name), ['Passport']);
+  const ins = (await svc.search('insurance')).map((d) => d.name);
+  assert.equal(ins[0], 'Insurance Claim Form'); // names starting with the query first
+  assert.ok(ins.includes('Health Insurance Policy') && ins.includes('Travel Insurance') && ins.includes('Vehicle Insurance'));
+  const cats = new Set((await svc.search('insurance')).map((d) => d.categoryName));
+  assert.ok(cats.size >= 3, 'results span several categories');
+  assert.deepEqual(await svc.search(''), []);
+  assert.deepEqual(await svc.search('   '), []);
+  assert.deepEqual(await svc.search('zzzz-no-match'), []);
+});
+
+test('search: identical names are separate results with their own id, category and date', async () => {
+  const { svc } = await setup();
+  const bills = await svc.search('electricity bill');
+  assert.equal(bills.length, 2);
+  assert.notEqual(bills[0].id, bills[1].id);
+  assert.deepEqual(bills.map((d) => d.categoryName).sort(), ['Bills & Receipts', 'Property & Real Estate']);
+  const real1 = await svc.importFile(1, pdf(), 'Electricity Bill');
+  const again = await svc.search('electricity bill');
+  assert.equal(again.length, 3);
+  assert.ok(again.some((d) => d.id === real1.id && d.categoryName === 'Personal Documents'));
+});
+
+test('search by date: formats, partial dates, created date of real documents and expiry date', async () => {
+  const { svc, db } = await setup({ now: () => '2026-10-17T07:01:02.000Z' });
+  const doc = await svc.importFile(3, pdf('scan.pdf'), 'Zebra Pass');
+  for (const q of ['2026-10-17', '17/10/2026', '17-10-2026', '17.10.2026', '10/17/2026', '17 Oct 2026', 'Oct 17, 2026', '2026-10', 'October 2026', '17/10']) {
+    assert.ok((await svc.search(q)).some((d) => d.id === doc.id), q);
+  }
+  for (const q of ['18/10/2026', '2026-11', '16/10']) assert.ok(!(await svc.search(q)).some((d) => d.id === doc.id), q);
+  // demo documents are searchable by their stored date too (Aadhaar Card: 2026-03-11)
+  assert.ok((await svc.search('11/03/2026')).some((d) => d.name === 'Aadhaar Card'));
+  // expiry date is also searched
+  await db.run('UPDATE documents SET expiry_date = ? WHERE id = ?', ['2031-05-20', doc.id]);
+  assert.ok((await svc.search('20/05/2031')).some((d) => d.id === doc.id));
+});
+
+test('search treats % and _ literally and cannot be used for SQL injection', async () => {
+  const { svc } = await setup();
+  const a = await svc.importFile(1, pdf(), '100% done');
+  await svc.importFile(1, pdf('b.pdf'), 'snake_case');
+  assert.deepEqual((await svc.search('%')).map((d) => d.id), [a.id]);
+  assert.deepEqual((await svc.search('e_c')).map((d) => d.name), ['snake_case']);
+  assert.deepEqual(await svc.search("'; DROP TABLE documents; --"), []);
+  assert.equal((await svc.list()).length, 60);
+});
+
+test('search also matches the original file name', async () => {
+  const { svc } = await setup();
+  await svc.importFile(2, pdf('IMG_2041.pdf'), 'Receipt');
+  assert.deepEqual((await svc.search('img_2041')).map((d) => d.name), ['Receipt']);
+});
+
+test('search reflects renames and deletions immediately (database is the single source of truth)', async () => {
+  const { svc } = await setup();
+  const doc = await svc.importFile(1, pdf(), 'Quokka');
+  assert.equal((await svc.search('quokka')).length, 1);
+  await svc.rename(doc.id, 'Wombat');
+  assert.equal((await svc.search('quokka')).length, 0);
+  assert.equal((await svc.search('wombat')).length, 1);
+  await svc.remove(doc.id);
+  assert.equal((await svc.search('wombat')).length, 0);
+});
+
+test('in-memory preview search matches the SQLite search', async () => {
+  const { svc } = await setup();
+  const mock = createMockService();
+  for (const q of ['aadhaar', 'BILL', 'pass', 'insurance', '2026-03', '13/03/2026', '17 Mar 2026', 'zzz', '%']) {
+    assert.deepEqual((await mock.search(q)).map((d) => d.name), (await svc.search(q)).map((d) => d.name), q);
+  }
+  assert.equal(matchesDocument({ name: 'X', createdAt: '2026-10-17T00:00:00Z' }, '17/10/2026'), true);
 });

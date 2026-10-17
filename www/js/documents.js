@@ -1,6 +1,8 @@
 // Document service: coordinates SQLite metadata with files in app-private storage.
 // Storage / picker / viewer are injected adapters so no native API reaches the UI.
 
+import { normalizeQuery, escapeLike, parseDateQuery } from './search.js';
+
 export const DOCS_DIR = 'documents';
 const SHARE_DIR = 'share';
 export const THUMBS_DIR = 'thumbnails'; // outside DOCS_DIR so reconcile can sweep each independently
@@ -104,6 +106,28 @@ export function createDocumentService({ db, storage, picker, viewer, camera, sha
     },
 
     async get(id) { return toRecord(await getRow(id)); },
+
+    /**
+     * Global search over ALL categories: case-insensitive partial match on the display name and original file
+     * name, plus date matching (created / expiry date) when the query reads as a date (see search.js).
+     * Every matching document is its own result (identified by id) with its category attached.
+     */
+    async search(query, { limit = 100 } = {}) {
+      const text = normalizeQuery(query).toLowerCase();
+      if (!text) return [];
+      const like = `%${escapeLike(text)}%`;
+      const datePattern = parseDateQuery(text);
+      const dateSql = datePattern ? ' OR d.created_at LIKE ? OR d.expiry_date LIKE ?' : '';
+      const where = `(LOWER(d.name) LIKE ? ESCAPE '\\' OR LOWER(d.original_filename) LIKE ? ESCAPE '\\'${dateSql})`;
+      const rows = await db.all(
+        `SELECT d.*, c.name AS category_name, c.slug AS category_slug, c.icon AS category_icon
+           FROM documents d JOIN categories c ON c.id = d.category_id
+          WHERE ${where}
+          ORDER BY (LOWER(d.name) LIKE ? ESCAPE '\\') DESC, d.name COLLATE NOCASE, d.id
+          LIMIT ?;`,
+        [like, like, ...(datePattern ? [datePattern, datePattern] : []), `${escapeLike(text)}%`, limit]);
+      return rows.map((r) => ({ ...toRecord(r), categoryName: r.category_name, categorySlug: r.category_slug, categoryIcon: r.category_icon }));
+    },
 
     /** file: { name, mimeType, size, data(base64) } */
     async importFile(categoryId, file, displayName) {
