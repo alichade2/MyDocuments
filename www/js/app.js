@@ -751,7 +751,7 @@ const destinations = { settings: () => openSettings() };
 
 const drawer = createDrawer({
   drawer: $('drawer'), scrim: $('drawer-scrim'), list: $('drawer-items'), openButton: $('menu-open'),
-  background: [$('app-bar'), $('scroller'), $('all-scroller'), $('settings-scroller'), document.querySelector('.tab-bar')],
+  background: [$('app-bar'), $('scroller'), $('all-scroller'), $('settings-scroller'), $('categories-scroller'), document.querySelector('.tab-bar')],
   items: MENU_ITEMS, renderIcon: (name) => svgIcon(name),
   isBlocked: () => motion.busy || allState.busy || nav.page !== null,
   onSelect: (id) => destinations[id]?.(),
@@ -1009,7 +1009,7 @@ async function openManageCategories() {
   nav.page = 'categories';
   $('settings-scroller').hidden = true;
   $('categories-scroller').hidden = false;
-  $('categories-scroller').scrollTop = 0;
+  $('cat-scroller').scrollTop = 0; // only the list scrolls; the Add button stays fixed
   $('app-title').textContent = 'Manage Categories';
   await refreshManageList();
   $('cat-add').focus({ preventScroll: true });

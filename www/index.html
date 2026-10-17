@@ -99,17 +99,22 @@
     </main>
   </div>
 
-  <div id="categories-scroller" class="scroller" hidden>
-    <main>
-      <section id="categories-view" aria-label="Manage categories">
-        <button type="button" class="btn filled add-category-btn" id="cat-add" aria-label="Add Category">
-          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2Z"/></svg>
-          <span>Add Category</span>
-        </button>
-        <ul id="cat-list" class="cat-list"></ul>
-        <p class="settings-hint">Built-in categories are permanent. Your own categories can be renamed, re-iconed or deleted.</p>
-      </section>
-    </main>
+  <!-- Fixed Add Category bar + independently scrolling list (#cat-scroller) -->
+  <div id="categories-scroller" class="fixed-page" hidden>
+    <div class="fixed-page-bar">
+      <button type="button" class="btn filled add-category-btn" id="cat-add" aria-label="Add Category">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2Z"/></svg>
+        <span>Add Category</span>
+      </button>
+    </div>
+    <div id="cat-scroller" class="scroller">
+      <main>
+        <section id="categories-view" aria-label="Manage categories">
+          <ul id="cat-list" class="cat-list"></ul>
+          <p class="settings-hint">Built-in categories are permanent. Your own categories can be renamed, re-iconed or deleted.</p>
+        </section>
+      </main>
+    </div>
   </div>
 
   <nav class="tab-bar" aria-label="Main sections">
