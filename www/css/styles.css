@@ -34,6 +34,7 @@ body {
 .app-bar h1 { margin: 0; font-size: 1.25rem; font-weight: 600; }
 .brand { display: flex; align-items: center; gap: 10px; min-width: 0; transition: opacity .2s; }
 .hdr-btn { width: 36px; height: 36px; flex: none; display: grid; place-items: center; padding: 0; background: none; border: 0; border-radius: 50%; color: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.hdr-btn[hidden] { display: none; } /* author display:grid would otherwise override the hidden attribute */
 .hdr-btn svg { width: 22px; height: 22px; }
 .hdr-btn:active { background: rgba(255,255,255,.22); }
 .hdr-btn:focus-visible, .search-bar input:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; }

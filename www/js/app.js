@@ -507,12 +507,17 @@ async function runSearch(q) {
   }
 }
 
+/** The clear (X) button exists only while the field holds text (ignoring surrounding whitespace). */
+function syncClearButton() {
+  $('search-clear').hidden = normalizeQuery($('search-input').value) === '';
+}
+
 function scheduleSearch({ immediate = false } = {}) {
   clearTimeout(search.debounce);
   search.seq++; // discard results of any query still in flight
   clearTimeout(search.spinnerTimer);
   const q = normalizeQuery($('search-input').value);
-  $('search-clear').hidden = $('search-input').value === '';
+  syncClearButton();
   if (!q) { renderSearchHint(); return; }
   search.debounce = setTimeout(() => runSearch(q), immediate ? 0 : SEARCH_DEBOUNCE_MS);
 }
@@ -525,6 +530,7 @@ function openSearch() {
   $('search-view').hidden = false;
   $('scroller').scrollTop = 0;
   renderSearchHint();
+  syncClearButton(); // starts empty, so no clear button
 
   const bar = $('search-bar');
   const iconBtn = $('search-open');
@@ -565,7 +571,7 @@ function closeSearch() {
   const done = () => {
     bar.hidden = true;
     $('search-input').value = '';
-    $('search-clear').hidden = true;
+    syncClearButton();
     iconBtn.getAnimations().forEach((a) => a.cancel());
     bar.getAnimations({ subtree: true }).forEach((a) => a.cancel()); // drop fill-forwards fades so a re-open starts clean
     iconBtn.style.visibility = '';
@@ -587,6 +593,8 @@ function wireSearch() {
     $('search-input').focus();
   });
   $('search-input').addEventListener('input', () => scheduleSearch());
+  $('search-input').addEventListener('change', syncClearButton);
+  $('search-input').addEventListener('keyup', syncClearButton);
   $('search-input').addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSearch(); });
   $('search-bar').addEventListener('submit', (e) => { e.preventDefault(); $('search-input').blur(); }); // results are already live
   $('search-results').addEventListener('click', (e) => {

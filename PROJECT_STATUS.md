@@ -112,6 +112,13 @@ Dashboard v2 (12 categories + demo data) implemented 2026-10-16; see "Dashboard 
 - Verified: `npm test` 46/46 (date formats, partial/case/trim, cross-category, ranking, duplicates, real vs demo, expiry date, `%`/`_`/SQL injection, original filename, rename/delete reflected, preview/SQLite parity). Browser preview (360px): expand animation frames, focus, live typing (A -> Ad -> Aadhaar), duplicate "Electricity Bill" as two results with different categories and ids, date queries, no-result state, rapid typing keeps only the last query's results, clear, close restores scroll 250, re-open works. Emulator: icon-only header; expanded field with keyboard and search key; "aadhaar" returns the sample (Identity Documents) and my real uploaded photo (Personal Documents) as two results; tapping the real one opened the photo viewer; Back closed the viewer, next Back closed search to the dashboard; `16/10/2026` found the real photo via SQLite.
 - Limits / not verified: SQLite `LOWER()` is ASCII-only, so case-insensitive matching of non-ASCII capitals (e.g. accented letters) is not guaranteed; `updated_at` is not searched (rename would otherwise change matches); no physical device; not tested with thousands of documents (query is a single indexed-table scan with LIMIT 100).
 
+## Search clear (X) button (2026-10-17)
+- Bug: the clear button was always visible. Cause: `.hdr-btn { display: grid }` overrides the `hidden` attribute, so toggling `hidden` had no visual effect. Fix: `.hdr-btn[hidden] { display: none }` in `www/css/styles.css`.
+- Logic (`www/js/app.js`): one function `syncClearButton()` shows the button only when the trimmed input value is non-empty. It runs on `input` (typing, Backspace, cut/paste, IME), `change`, `keyup`, when search opens (starts empty), when the clear button is used, and when search closes. Whitespace-only text counts as empty.
+- Tapping X clears the value, hides the button, resets results to the hint state, keeps the field expanded and refocuses the input; it never collapses the field (the back arrow closes).
+- Verified (browser preview, computed `display` checked): open empty -> hidden; `A` -> shown; `Aadhaar` -> shown; `Aadh`/`A` -> shown; empty via Backspace -> hidden; spaces only -> hidden; select-all + delete -> hidden; programmatic clear + change -> hidden; X tap -> value empty, hidden, hint shown, still expanded and focused; close and reopen -> hidden. Emulator (real keyboard/keyevents): empty -> no X; typed `a` -> X; typed `adhaar` then Backspace x3 -> X stays; Backspace to empty -> X gone immediately; typed `pass` then tapped X -> field empty, no X, hint shown, field still expanded with keyboard; typed again -> X returns. `npm test` 46/46 (unchanged; logic tests only, no DOM harness).
+- Note: results can match on the original file name too, so a short query like `x` also lists a photo whose original file name contains it.
+
 ## Known issues and blockers
 1. (Resolved) Android SDK/emulator now installed; build with `JAVA_HOME` = JDK 21 and `ANDROID_HOME` set works.
 3. Unverified assumptions to check on device: FilePicker `readData` result, `Filesystem.getUri` path accepted by `FileViewer.openDocumentFromLocalPath`, CapacitorSQLite `isConnection`/transaction calls with `transaction:false`, and `Capacitor.Plugins.<Name>` proxies without a bundler.
@@ -136,6 +143,7 @@ Inspected environment, initialised Capacitor/Android, built dashboard, database 
 ## Change history
 - 2026-10-16: initial implementation (see Git history).
 - 2026-10-16: 12-category dashboard, demo data, schema v2, tests 15 -> 23.
+- 2026-10-17: search clear (X) button only when the field has text (fixed hidden-attribute override).
 - 2026-10-17: expandable global search (name + date), tests 38 -> 46.
 - 2026-10-17: document sharing via the native Sharesheet, icon actions on cards, tests 34 -> 38.
 - 2026-10-17: fixed header with an independent scroll container.
