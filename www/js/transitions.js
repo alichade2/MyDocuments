@@ -16,8 +16,7 @@ export const prefersReducedMotion = () =>
 const token = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const FULL = 'inset(0px 0px 0px 0px round 0px)';
 
-function insetFor(rect, top) {
-  const h = innerHeight - top;
+function insetFor(rect, { top, height: h }) {
   const t = Math.max(0, rect.top - top);
   const r = Math.max(0, innerWidth - rect.right);
   const b = Math.max(0, h - (rect.bottom - top));
@@ -25,22 +24,24 @@ function insetFor(rect, top) {
 }
 
 /** Positions the view as a fixed overlay whose content lines up exactly with its normal in-flow position. */
-function enterOverlay(view, { appBar, main, banner }) {
+function enterOverlay(view, { appBar, main, banner, scroller }) {
   const top = appBar.getBoundingClientRect().bottom;
+  const bottom = scroller.getBoundingClientRect().bottom; // the overlay stops above the bottom tab bar
   const mainRect = main.getBoundingClientRect();
   const cs = getComputedStyle(main);
   const bannerOffset = banner.hidden ? 0 : banner.offsetHeight + parseFloat(getComputedStyle(banner).marginBottom || '0');
   view.style.setProperty('--cv-top', `${top}px`);
+  view.style.setProperty('--cv-bottom', `${innerHeight - bottom}px`);
   view.style.setProperty('--cv-pad-top', `${parseFloat(cs.paddingTop) + bannerOffset}px`);
   view.style.setProperty('--cv-pad-l', `${mainRect.left + parseFloat(cs.paddingLeft)}px`);
   view.style.setProperty('--cv-pad-r', `${innerWidth - mainRect.right + parseFloat(cs.paddingRight)}px`);
   view.classList.add('cv-overlay');
-  return top;
+  return { top, height: bottom - top };
 }
 
 function leaveOverlay(view) {
   view.classList.remove('cv-overlay');
-  for (const p of ['--cv-top', '--cv-pad-top', '--cv-pad-l', '--cv-pad-r']) view.style.removeProperty(p);
+  for (const p of ['--cv-top', '--cv-bottom', '--cv-pad-top', '--cv-pad-l', '--cv-pad-r']) view.style.removeProperty(p);
 }
 
 // Waits for the animations, but never longer than a safety timeout (e.g. throttled background WebView),
@@ -64,11 +65,11 @@ export async function expandCategory(els) {
   await settled([press]);
 
   view.hidden = false;
-  const top = enterOverlay(view, els);
+  const geo = enterOverlay(view, els);
   const anims = [press];
 
   anims.push(view.animate(
-    [{ clipPath: insetFor(cardRect, top), backgroundColor: token('--surface') }, { clipPath: FULL, backgroundColor: token('--bg') }],
+    [{ clipPath: insetFor(cardRect, geo), backgroundColor: token('--surface') }, { clipPath: FULL, backgroundColor: token('--bg') }],
     { duration: T_EXPAND, easing: EASE_OUT, fill: 'both' }));
   anims.push(dashboard.animate([{ opacity: 1 }, { opacity: 0.4 }], { duration: T_EXPAND * 0.6, easing: EASE_STD, fill: 'forwards' }));
 
@@ -104,7 +105,7 @@ export async function expandCategory(els) {
 export async function collapseCategory(els) {
   const { card, view, dashboard, categories, restoreScroll, scroller } = els;
   const contentScroll = scroller.scrollTop;
-  const top = enterOverlay(view, els);
+  const geo = enterOverlay(view, els);
   view.scrollTop = contentScroll; // keep the category content where the user left it while it shrinks
   dashboard.hidden = false;
   scroller.scrollTop = restoreScroll; // dashboard comes back exactly as it was; its DOM is never rebuilt
@@ -113,8 +114,8 @@ export async function collapseCategory(els) {
   const anims = [
     view.animate(
       [{ clipPath: FULL, opacity: 1, backgroundColor: token('--bg'), offset: 0 },
-        { clipPath: insetFor(cardRect, top), opacity: 1, offset: 0.65 },
-        { clipPath: insetFor(cardRect, top), opacity: 0, backgroundColor: token('--surface'), offset: 1 }],
+        { clipPath: insetFor(cardRect, geo), opacity: 1, offset: 0.65 },
+        { clipPath: insetFor(cardRect, geo), opacity: 0, backgroundColor: token('--surface'), offset: 1 }],
       { duration: T_COLLAPSE, easing: EASE_STD, fill: 'both' }),
     categories.animate([{ opacity: 0.4 }, { opacity: 1 }], { duration: T_COLLAPSE, easing: EASE_STD }),
     card.animate([{ transform: 'scale(1)' }, { transform: 'scale(.96)', offset: 0.6 }, { transform: 'scale(1)' }], { duration: T_COLLAPSE, easing: EASE_STD }),

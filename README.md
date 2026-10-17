@@ -11,6 +11,8 @@ Lightweight document manager: vanilla HTML/CSS/ES modules, SQLite metadata, file
 | `www/js/database.js` | SQLite driver, schema/migrations (`PRAGMA user_version`), transactions, default categories |
 | `www/js/documents.js` | Document service (import, list, rename, delete, open, reconcile) + Capacitor adapters |
 | `www/js/seed.js` | The 12 categories and demo document metadata |
+| `www/js/zip.js` | Streaming ZIP writer + safe entry names (no dependencies) |
+| `www/js/selection.js` | Id-based multi-selection state for the All Documents tab |
 | `www/js/search.js` | Search query normalisation and date parsing (pure functions) |
 | `www/js/transitions.js` | Category open/close container-transform animation (Web Animations API) |
 | `www/js/images.js` | Thumbnail generation (browser canvas) |
@@ -70,6 +72,10 @@ The dashboard shows 12 categories (see `seed.js`). Each ships with sample docume
 ## Search
 
 The header search icon expands into a field. Results update as you type across all categories, by name (partial, case-insensitive) or by date (`2026-10-17`, `17/10/2026`, `17 Oct 2026`, ...). Documents with the same name are listed separately with their category and date.
+
+## All Documents and ZIP sharing
+
+The bottom tabs switch between **Category** (the dashboard) and **All Documents** (every saved document grouped by category, with checkboxes). **Share Files** bundles the selected documents into one `MyDocs_<date>.zip` (entries `Category/Name.ext`, duplicate names get `(2)`...) in the app cache and opens the Android share sheet. Sample documents have no file and cannot be zipped.
 
 ## Sharing
 

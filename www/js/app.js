@@ -5,6 +5,7 @@ import { createMockService } from './mock.js';
 import { createThumbnail } from './images.js';
 import { prefersReducedMotion, expandCategory, collapseCategory } from './transitions.js';
 import { normalizeQuery } from './search.js';
+import { createSelection } from './selection.js';
 
 const $ = (id) => document.getElementById(id);
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -83,7 +84,7 @@ function showMessage(text) {
 
 async function guarded(fn) {
   try { return await fn(); } catch (err) {
-    if (err?.code !== 'DEMO_DOCUMENT') console.error('MyDocs error:', err?.code || err?.name || 'error');
+    if (err?.code !== 'DEMO_DOCUMENT') console.error('MyDocs error:', err?.code || err?.name || 'error', err?.code ? '' : String(err?.stack ?? '').replace(/\s+/g, ' ').slice(0, 300));
     showMessage(err?.message || String(err));
   }
 }
@@ -166,6 +167,7 @@ function renderCategoryView() {
 }
 
 async function reloadCategory(categoryId) {
+  tabs.allDirty = true; // add / rename / delete all end up here; the All Documents tab refreshes when it is shown
   view.docs.set(categoryId, await service.list(categoryId));
   if (view.categoryId === categoryId) renderCategoryView(); else updateCardCount(cards.get(categoryId), view.docs.get(categoryId).length);
 }
@@ -417,6 +419,7 @@ function handleDocAction(e) {
 
 function wireEvents() {
   wireSearch();
+  wireAllDocuments();
   // One delegated listener per container; nothing is re-registered when views change.
   $('categories').addEventListener('click', (e) => {
     const card = e.target.closest('[data-category-id]');
@@ -611,15 +614,147 @@ function wireSearch() {
   });
 }
 
+/* ---------- Bottom tabs + All Documents ---------- */
+
+const tabs = { current: 'category', allDirty: true, scroll: { category: 0, all: 0 } };
+const selection = createSelection();
+const allState = { groups: new Map(), busy: false }; // categoryId -> { ids: [], header, rows: Map(id -> row) }
+
+function switchTab(name) {
+  if (tabs.current === name || motion.busy || allState.busy) return;
+  if (search.active) closeSearch();
+  const from = tabs.current;
+  tabs.scroll[from] = $(from === 'all' ? 'all-scroller' : 'scroller').scrollTop; // hidden scrollers lose their offset
+  tabs.current = name;
+  document.body.classList.toggle('tab-all', name === 'all');
+  $('scroller').hidden = name === 'all';
+  $('all-scroller').hidden = name !== 'all';
+  $('share-files').hidden = name !== 'all';
+  for (const t of document.querySelectorAll('.tab')) {
+    const on = t.dataset.tab === name;
+    t.classList.toggle('active', on);
+    if (on) t.setAttribute('aria-current', 'page'); else t.removeAttribute('aria-current');
+  }
+  const target = $(name === 'all' ? 'all-scroller' : 'scroller');
+  const restore = () => { target.scrollTop = tabs.scroll[name]; };
+  if (name === 'all' && tabs.allDirty) refreshAllDocuments().then(restore).catch((err) => { console.error('MyDocs list error:', err?.name || 'error', String(err?.stack ?? '').replace(/\s+/g, ' ').slice(0, 300)); showMessage('Could not load documents.'); }); else restore();
+}
+
+function updateSelectionUI() {
+  const n = selection.size;
+  $('sel-count').textContent = `${n} selected`;
+  $('sel-clear').disabled = n === 0;
+  $('share-files').setAttribute('aria-label', n ? `Share ${n} selected ${n === 1 ? 'file' : 'files'} as a ZIP` : 'Share selected files as a ZIP');
+  for (const [, g] of allState.groups) {
+    const st = selection.stateOf(g.ids);
+    g.check.checked = st === 'all';
+    g.check.indeterminate = st === 'some';
+    for (const [id, row] of g.rows) {
+      const on = selection.has(id);
+      row.el.classList.toggle('selected', on);
+      row.input.checked = on;
+    }
+  }
+}
+
+function renderAllRow(doc, g) {
+  const type = FILE_TYPES[doc.fileType] ?? { cls: 't-other', label: (doc.fileType || '?').slice(0, 3) };
+  const iconEl = el('span', { class: `card-icon ${type.cls}` });
+  if (type.icon) iconEl.append(svgIcon(type.icon)); else iconEl.textContent = type.label;
+  let leading = iconEl;
+  if (doc.thumbPath) {
+    const img = el('img', { class: 'result-thumb', alt: '', loading: 'lazy', decoding: 'async' });
+    img.addEventListener('error', () => img.replaceWith(iconEl), { once: true });
+    service.thumbnailSrc(doc).then((src) => { if (src) img.src = src; else img.replaceWith(iconEl); }).catch(() => img.replaceWith(iconEl));
+    leading = img;
+  }
+  const meta = el('span', { class: 'result-meta' }, `${doc.createdAt?.slice(0, 10) ?? ''} · ${(doc.fileType ?? '').toUpperCase()}`);
+  if (doc.isDemo) meta.append(el('span', { class: 'badge' }, 'Sample'));
+  const input = el('input', { type: 'checkbox', class: 'doc-check', 'data-doc-id': String(doc.id), 'aria-label': `Select ${doc.name}, ${doc.categoryName}` });
+  const label = el('label', { class: 'doc-row' }, leading,
+    el('span', { class: 'result-text' }, el('span', { class: 'result-name' }, doc.name), meta),
+    el('span', { class: 'check' }, input));
+  g.rows.set(doc.id, { el: label, input });
+  return label;
+}
+
+/** Re-reads every saved document (single source of truth: the repository) and rebuilds the grouped list. */
+async function refreshAllDocuments() {
+  const docs = await service.listAll();
+  tabs.allDirty = false;
+  if (selection.prune(docs.map((d) => d.id)) > 0) showMessage('Some selected documents were removed from the selection because they no longer exist.');
+  const byCat = new Map();
+  for (const d of docs) { if (!byCat.has(d.categoryId)) byCat.set(d.categoryId, { name: d.categoryName, docs: [] }); byCat.get(d.categoryId).docs.push(d); }
+  allState.groups = new Map();
+  const frag = document.createDocumentFragment();
+  for (const [categoryId, { name, docs: list }] of byCat) {
+    const check = el('input', { type: 'checkbox', class: 'group-check', 'aria-label': `Select all in ${name}` });
+    const g = { ids: list.map((d) => d.id), check, rows: new Map() };
+    allState.groups.set(categoryId, g);
+    frag.append(el('section', { class: 'group', 'aria-label': name },
+      el('label', { class: 'group-header' }, el('span', { class: 'group-title' }, name, el('span', { class: 'group-count' }, ` (${list.length})`)), el('span', { class: 'check' }, check)),
+      ...list.map((d) => renderAllRow(d, g))));
+  }
+  if (!docs.length) frag.append(el('div', { class: 'empty' }, 'No documents saved yet.'));
+  $('all-list').replaceChildren(frag);
+  updateSelectionUI();
+}
+
+function wireAllDocuments() {
+  $('all-list').addEventListener('change', (e) => {
+    const t = e.target;
+    if (t.classList.contains('doc-check')) selection.toggle(Number(t.dataset.docId), t.checked); // by unique id, never by name
+    else if (t.classList.contains('group-check')) {
+      const g = [...allState.groups.values()].find((x) => x.check === t);
+      if (g) selection.setMany(g.ids, t.checked);
+    } else return;
+    updateSelectionUI();
+  });
+  $('sel-clear').addEventListener('click', () => { selection.clear(); updateSelectionUI(); });
+  $('share-files').addEventListener('click', shareSelected);
+  for (const t of document.querySelectorAll('.tab')) t.addEventListener('click', () => switchTab(t.dataset.tab));
+  $('progress-dialog').addEventListener('cancel', (e) => e.preventDefault()); // cannot be dismissed while the ZIP is built
+}
+
+async function shareSelected() {
+  if (allState.busy) return; // no duplicate submissions while the archive is being built
+  if (selection.size === 0) { showMessage('Please select at least one document to share'); return; }
+  allState.busy = true;
+  $('share-files').disabled = true;
+  $('pg-text').textContent = 'Preparing ZIP file...';
+  $('progress-dialog').showModal();
+  try {
+    const res = await service.shareSelectedAsZip(selection.toList(), {
+      onProgress: (done, total) => { $('pg-text').textContent = done < total ? `Preparing ZIP file... (${done + 1} of ${total})` : 'Opening share sheet...'; },
+    });
+    $('progress-dialog').close();
+    if (res.shared) { // handed to the Android share sheet
+      selection.clear();
+      updateSelectionUI();
+      showMessage(`Shared ${res.count} ${res.count === 1 ? 'document' : 'documents'} as ${res.fileName}`);
+    } // dismissed sheet: keep the selection so the user can retry
+  } catch (err) {
+    $('progress-dialog').close();
+    if (err?.code === 'SELECTION_STALE') await refreshAllDocuments();
+    if (!['NOTHING_SELECTED', 'ZIP_UNAVAILABLE', 'SELECTION_STALE', 'ZIP_NO_SPACE', 'ZIP_TOO_LARGE'].includes(err?.code)) console.error('MyDocs ZIP error:', err?.code || err?.name || 'error');
+    showMessage(err?.message || 'Could not create the ZIP file. Please try again.');
+  } finally {
+    allState.busy = false;
+    $('share-files').disabled = false;
+  }
+}
+
 /** Capacitor 8 does not handle the system Back button itself: dialogs first, then category -> dashboard, then exit. */
 function wireBackButton() {
   const appPlugin = globalThis.Capacitor?.Plugins?.App;
   if (!appPlugin) return;
   appPlugin.addListener('backButton', () => {
+    if ($('progress-dialog').open) return; // ZIP being prepared
     if ($('viewer-dialog').open) { $('vw-close').click(); return; }
     if ($('name-dialog').open) { if (!saving) closeNameDialog(); return; }
     if ($('preview-dialog').open) { releasePending(); $('preview-dialog').close(); return; }
     if (search.active) { closeSearch(); return; }
+    if (tabs.current === 'all') { if (selection.size) { selection.clear(); updateSelectionUI(); } else switchTab('category'); return; }
     if (view.categoryId != null) { goBack(); return; }
     appPlugin.exitApp();
   });
@@ -636,6 +771,7 @@ async function init() {
     await service.reconcile();
   } else {
     service = createMockService();
+    globalThis.__mydocsPreview = service; // browser preview only: lets tests inspect the in-memory ZIP
     const b = $('banner');
     b.textContent = 'Browser preview: sample data from an in-memory mock, nothing is saved. Run the Android app for SQLite storage.';
     b.hidden = false;

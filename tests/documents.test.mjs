@@ -7,6 +7,8 @@ import { createDatabase, DEFAULT_CATEGORIES, SCHEMA_VERSION } from '../www/js/da
 import { createDocumentService, DocumentError, DOCS_DIR, THUMBS_DIR, DEMO_MESSAGE, suggestName, shareFileName } from '../www/js/documents.js';
 import { CATEGORIES } from '../www/js/seed.js';
 import { createMockService } from '../www/js/mock.js';
+import { writeZip, crc32, base64ToBytes, bytesToBase64, uniqueEntryPaths, sanitizeSegment } from '../www/js/zip.js';
+import { createSelection } from '../www/js/selection.js';
 import { parseDateQuery, normalizeQuery, escapeLike, matchesDocument } from '../www/js/search.js';
 
 function nodeDriver(file = ':memory:') {
@@ -33,8 +35,13 @@ function memStorage() {
     async exists(p) { return files.has(p); },
     async list(dir) { return [...files.keys()].filter((k) => k.startsWith(`${dir}/`)).map((k) => k.slice(dir.length + 1)); },
     async uri(p) { return `file:///private/${p}`; },
+    shareFile: null,
+    async readBase64(p) { if (!this.files.has(p)) throw new Error('File does not exist'); return this.files.get(p); },
+    async beginShareFile(name) { this.shareFile = { name, chunks: [] }; },
+    async appendShareFile(name, b64) { if (this.failAppend) throw new Error('ENOSPC: No space left on device'); this.shareFile.chunks.push(b64); },
+    async shareFileUri(name) { return `file:///cache/share/${name}`; },
     staged: [],
-    async clearShareCache() { this.staged = []; },
+    async clearShareCache() { this.staged = []; this.shareFile = null; },
     async stageForShare(p, name) { this.staged = [{ from: p, name }]; return `file:///cache/share/${name}`; },
     async src(p) { return `https://localhost/_capacitor_file_/private/${p}`; },
   };
@@ -552,4 +559,157 @@ test('in-memory preview search matches the SQLite search', async () => {
     assert.deepEqual((await mock.search(q)).map((d) => d.name), (await svc.search(q)).map((d) => d.name), q);
   }
   assert.equal(matchesDocument({ name: 'X', createdAt: '2026-10-17T00:00:00Z' }, '17/10/2026'), true);
+});
+
+/* ---------- ZIP + bulk share ---------- */
+
+/** Independent minimal ZIP reader (follows the spec: end record -> central directory -> local headers). */
+function readZip(bytes) {
+  const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let end = bytes.length - 22;
+  while (end >= 0 && v.getUint32(end, true) !== 0x06054b50) end--;
+  assert.ok(end >= 0, 'end of central directory record');
+  const count = v.getUint16(end + 10, true);
+  let p = v.getUint32(end + 16, true);
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    assert.equal(v.getUint32(p, true), 0x02014b50);
+    const method = v.getUint16(p + 10, true), crc = v.getUint32(p + 16, true), size = v.getUint32(p + 24, true);
+    const nameLen = v.getUint16(p + 28, true), extraLen = v.getUint16(p + 30, true), commentLen = v.getUint16(p + 32, true), off = v.getUint32(p + 42, true);
+    const name = new TextDecoder().decode(bytes.subarray(p + 46, p + 46 + nameLen));
+    assert.equal(v.getUint32(off, true), 0x04034b50);
+    const lNameLen = v.getUint16(off + 26, true), lExtra = v.getUint16(off + 28, true);
+    const start = off + 30 + lNameLen + lExtra;
+    out.push({ name, method, crc, size, data: bytes.subarray(start, start + size) });
+    p += 46 + nameLen + extraLen + commentLen;
+  }
+  return out;
+}
+const zipBytes = (chunks) => base64ToBytes(bytesToBase64(Uint8Array.from(chunks.flatMap((c) => [...base64ToBytes(c)]))));
+const b64 = (text) => bytesToBase64(new TextEncoder().encode(text));
+
+test('crc32 matches the standard check value', () => {
+  assert.equal(crc32(new TextEncoder().encode('123456789')), 0xcbf43926);
+  assert.equal(crc32(new Uint8Array(0)), 0);
+});
+
+test('writeZip produces a valid archive: names, sizes, CRCs and contents (incl. empty file, unicode, large chunked file)', async () => {
+  const big = new Uint8Array(300000).map((_, i) => (i * 31) & 255);
+  const files = { 'A/one.txt': b64('hello'), 'A/empty.txt': '', 'B/Zażółć.txt': b64('unicode'), 'B/big.bin': bytesToBase64(big) };
+  const chunks = [];
+  const progress = [];
+  const res = await writeZip({
+    entries: Object.entries(files).map(([path, data]) => ({ path, read: async () => data })),
+    append: async (c) => { chunks.push(c); }, chunkChars: 1024, onProgress: (d, t) => progress.push([d, t]),
+  });
+  assert.equal(res.count, 4);
+  const zip = readZip(zipBytes(chunks));
+  assert.deepEqual(zip.map((e) => e.name), Object.keys(files));
+  for (const e of zip) {
+    assert.equal(e.method, 0);
+    assert.deepEqual([...e.data], [...base64ToBytes(files[e.name])], e.name);
+    assert.equal(e.size, base64ToBytes(files[e.name]).length);
+    assert.equal(e.crc, crc32(e.data));
+  }
+  assert.equal(res.bytes, zipBytes(chunks).length);
+  assert.deepEqual(progress.at(-1), [4, 4]);
+  await assert.rejects(writeZip({ entries: [], append: async () => {} }), /at least one/);
+});
+
+test('entry names: duplicates are renamed (never dropped), illegal characters and path traversal are neutralised', () => {
+  const paths = uniqueEntryPaths([
+    { category: 'Educational Documents', name: 'Certificate', ext: 'pdf' },
+    { category: 'Identity Documents', name: 'Certificate', ext: 'pdf' },
+    { category: 'Identity Documents', name: 'Certificate', ext: 'pdf' },
+    { category: 'Identity Documents', name: 'certificate', ext: 'PDF' }, // case-insensitive clash
+    { category: '../../etc', name: '../passwd', ext: 'txt' },
+    { category: 'C:\\Windows', name: 'a/b\\c:d*e?"f<g>h|i', ext: 'jpg' },
+    { category: '', name: '..', ext: '' },
+  ]);
+  assert.deepEqual(paths.slice(0, 4), ['Educational Documents/Certificate.pdf', 'Identity Documents/Certificate.pdf', 'Identity Documents/Certificate (2).pdf', 'Identity Documents/certificate (3).PDF']);
+  assert.equal(new Set(paths.map((p) => p.toLowerCase())).size, paths.length);
+  for (const p of paths) {
+    assert.ok(!p.startsWith('/') && !p.includes('\\') && !p.split('/').some((seg) => seg === '..' || seg === '.' || seg === ''), p);
+    assert.equal(p.split('/').length, 2, p);
+  }
+  assert.equal(sanitizeSegment('  ...  '), 'document');
+});
+
+test('selection: by unique id, same names stay separate, indeterminate category state, prune on delete', async () => {
+  const { svc } = await setup();
+  const bills = await svc.search('electricity bill'); // two documents with the same name
+  const sel = createSelection();
+  sel.toggle(bills[0].id);
+  assert.equal(sel.has(bills[0].id), true);
+  assert.equal(sel.has(bills[1].id), false);
+  assert.equal(sel.size, 1);
+  const ids = [1, 2, 3];
+  assert.equal(sel.stateOf(ids), 'none');
+  sel.toggle(1); assert.equal(sel.stateOf(ids), 'some');
+  sel.setMany(ids, true); assert.equal(sel.stateOf(ids), 'all');
+  sel.setMany(ids, false); assert.equal(sel.stateOf(ids), 'none');
+  assert.equal(sel.has(bills[0].id), true); // other categories untouched by the group operation
+  assert.equal(sel.prune([bills[1].id]), 1);
+  assert.equal(sel.size, 0);
+  sel.toggle(5); sel.clear(); assert.equal(sel.size, 0);
+  assert.equal(sel.stateOf([]), 'none');
+});
+
+function zipSetup(extra = {}) {
+  const shared = [];
+  return setup({ now: () => '2026-10-17T10:00:00', sharer: { share: async (a) => { shared.push(a); return true; } }, ...extra }).then((x) => ({ ...x, shared }));
+}
+
+test('shareSelectedAsZip: one ZIP with exactly the selected documents, category folders, duplicates kept, originals untouched', async () => {
+  const { svc, storage, shared } = await zipSetup();
+  const a = await svc.importFile(2, { name: 'x.pdf', size: 5, data: b64('AAAAA') }, 'Certificate');
+  const b = await svc.importFile(3, { name: 'y.pdf', size: 5, data: b64('BBBBB') }, 'Certificate');
+  const c = await svc.importFile(3, { name: 'z.pdf', size: 5, data: b64('CCCCC') }, 'Certificate');
+  const skipped = await svc.importFile(1, { name: 'n.pdf', size: 5, data: b64('NNNNN') }, 'Not selected');
+  const before = [...storage.files.entries()];
+  const seen = [];
+  const res = await svc.shareSelectedAsZip([c.id, a.id, b.id, a.id], { onProgress: (d, t, p) => seen.push([d, t]) });
+  assert.deepEqual(res, { shared: true, fileName: 'MyDocs_2026-10-17.zip', count: 3 });
+  assert.equal(shared.length, 1);
+  assert.deepEqual(shared[0], { uri: 'file:///cache/share/MyDocs_2026-10-17.zip', title: 'MyDocs_2026-10-17' });
+  const zip = readZip(zipBytes(storage.shareFile.chunks));
+  assert.deepEqual(zip.map((e) => e.name), ['Educational Documents/Certificate.pdf', 'Identity Documents/Certificate.pdf', 'Identity Documents/Certificate (2).pdf']);
+  assert.deepEqual(zip.map((e) => new TextDecoder().decode(e.data)), ['AAAAA', 'BBBBB', 'CCCCC']);
+  assert.ok(!zip.some((e) => new TextDecoder().decode(e.data) === 'NNNNN')); // unselected document is not included
+  assert.deepEqual([...storage.files.entries()], before); // library untouched
+  assert.ok(seen.length >= 3 && seen.at(-1)[0] === 3);
+  assert.equal((await real(svc)).length, 4);
+  assert.ok(skipped.id);
+});
+
+test('shareSelectedAsZip: validation and all-or-nothing failures', async () => {
+  const { svc, storage, shared } = await zipSetup();
+  await assert.rejects(svc.shareSelectedAsZip([]), { code: 'NOTHING_SELECTED' });
+  await assert.rejects(svc.shareSelectedAsZip(undefined), { code: 'NOTHING_SELECTED' });
+  const ok = await svc.importFile(1, pdf(), 'Good');
+  const gone = await svc.importFile(1, pdf('g.pdf'), 'Gone');
+  const [demo] = await svc.list(1);
+  await assert.rejects(svc.shareSelectedAsZip([ok.id, 999999]), { code: 'SELECTION_STALE' });
+  storage.files.delete(gone.filePath);
+  const e1 = await svc.shareSelectedAsZip([ok.id, gone.id, demo.id]).catch((e) => e);
+  assert.equal(e1.code, 'ZIP_UNAVAILABLE');
+  assert.deepEqual(e1.names.sort(), [demo.name, 'Gone'].sort());
+  assert.match(e1.message, /Nothing was shared/);
+  assert.equal(shared.length, 0); // nothing shared, no partial archive
+  storage.failAppend = true;
+  await assert.rejects(svc.shareSelectedAsZip([ok.id]), { code: 'ZIP_NO_SPACE' });
+  assert.equal(storage.shareFile, null); // half-written archive cleaned up
+  storage.failAppend = false;
+  assert.equal((await svc.shareSelectedAsZip([ok.id])).shared, true); // retry after an error works
+  const none = await setup();
+  await assert.rejects(none.svc.shareSelectedAsZip([1]), { code: 'NO_SHARE' });
+});
+
+test('shareSelectedAsZip reports a dismissed share sheet and replaces the previous temporary archive', async () => {
+  const { svc, storage } = await zipSetup({ sharer: { share: async () => false } });
+  const d = await svc.importFile(1, pdf(), 'Doc');
+  assert.equal((await svc.shareSelectedAsZip([d.id])).shared, false);
+  const first = storage.shareFile;
+  await svc.shareSelectedAsZip([d.id]);
+  assert.notEqual(storage.shareFile, first);
 });

@@ -2,6 +2,7 @@
 // Storage / picker / viewer are injected adapters so no native API reaches the UI.
 
 import { normalizeQuery, escapeLike, parseDateQuery } from './search.js';
+import { writeZip, uniqueEntryPaths, ZIP_LIMITS } from './zip.js';
 
 export const DOCS_DIR = 'documents';
 const SHARE_DIR = 'share';
@@ -103,6 +104,15 @@ export function createDocumentService({ db, storage, picker, viewer, camera, sha
         ? await db.all('SELECT * FROM documents ORDER BY name COLLATE NOCASE, id;')
         : await db.all('SELECT * FROM documents WHERE category_id = ? ORDER BY name COLLATE NOCASE, id;', [categoryId]);
       return Promise.all(rows.map(async (r) => ({ ...toRecord(r), missing: r.is_demo !== 1 && !(await storage.exists(r.file_path)) })));
+    },
+
+    /** Every document with its category (ordered by category, then name) - no per-file checks, for the All Documents list. */
+    async listAll() {
+      const rows = await db.all(
+        `SELECT d.*, c.name AS category_name, c.sort_order AS category_order
+           FROM documents d JOIN categories c ON c.id = d.category_id
+          ORDER BY c.sort_order, c.id, d.name COLLATE NOCASE, d.id;`);
+      return rows.map((r) => ({ ...toRecord(r), categoryName: r.category_name, categoryOrder: r.category_order, missing: false }));
     },
 
     async get(id) { return toRecord(await getRow(id)); },
@@ -213,6 +223,66 @@ export function createDocumentService({ db, storage, picker, viewer, camera, sha
       return sharer.share({ uri, title: row.name });
     },
 
+    /**
+     * Bundles the selected documents into ONE ZIP (entries "Category/Name.ext", duplicates renamed, never dropped)
+     * in the cache and opens the native share sheet for it. Nothing is changed in the library. All-or-nothing:
+     * if any selected document cannot be included, no archive is created or shared.
+     * Returns { shared, fileName, count } - `shared` is false when the user dismissed the share sheet.
+     */
+    async shareSelectedAsZip(ids, { onProgress } = {}) {
+      const wanted = [...new Set((ids ?? []).map(Number).filter(Number.isInteger))];
+      if (!wanted.length) throw new DocumentError('NOTHING_SELECTED', 'Please select at least one document to share.');
+      if (!sharer || !storage.beginShareFile) throw new DocumentError('NO_SHARE', 'Sharing is only available in the Android app.');
+
+      const rows = [];
+      for (let i = 0; i < wanted.length; i += 400) { // stay below SQLite's bound-parameter limit
+        const part = wanted.slice(i, i + 400);
+        rows.push(...await db.all(
+          `SELECT d.*, c.name AS category_name, c.sort_order AS category_order FROM documents d JOIN categories c ON c.id = d.category_id
+            WHERE d.id IN (${part.map(() => '?').join(',')});`, part));
+      }
+      if (rows.length !== wanted.length) {
+        throw new DocumentError('SELECTION_STALE', 'Some selected documents no longer exist. Please review your selection.');
+      }
+      rows.sort((a, b) => a.category_order - b.category_order || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) || a.id - b.id);
+
+      const unavailable = [];
+      for (const r of rows) {
+        if (r.is_demo === 1 || !r.file_path || !(await storage.exists(r.file_path))) unavailable.push(r.name);
+      }
+      if (unavailable.length) {
+        const shown = unavailable.slice(0, 3).map((n) => `"${n}"`).join(', ') + (unavailable.length > 3 ? ` and ${unavailable.length - 3} more` : '');
+        const err = new DocumentError('ZIP_UNAVAILABLE', `${unavailable.length === 1 ? 'This document has' : 'These documents have'} no file that can be shared: ${shown}. Nothing was shared.`);
+        err.names = unavailable;
+        throw err;
+      }
+      if (rows.length > ZIP_LIMITS.maxEntries) throw new DocumentError('ZIP_TOO_LARGE', 'Too many documents for one ZIP file.');
+      if (rows.reduce((n, r) => n + (r.file_size ?? 0), 0) > ZIP_LIMITS.maxBytes) {
+        throw new DocumentError('ZIP_TOO_LARGE', 'The selected documents are too large for one ZIP file. Select fewer documents.');
+      }
+
+      const d = new Date(now());
+      const p2 = (n) => String(n).padStart(2, '0');
+      const fileName = `MyDocs_${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}.zip`;
+      const paths = uniqueEntryPaths(rows.map((r) => ({ category: r.category_name, name: r.name, ext: r.file_type })));
+      const entries = rows.map((r, i) => ({ path: paths[i], date: new Date(r.updated_at), read: () => storage.readBase64(r.file_path) }));
+
+      try {
+        await storage.beginShareFile(fileName); // clears the previous temporary share file
+        await writeZip({ entries, append: (chunk) => storage.appendShareFile(fileName, chunk), onProgress });
+        const uri = await storage.shareFileUri(fileName);
+        const shared = await sharer.share({ uri, title: fileName.replace(/\.zip$/, '') });
+        return { shared, fileName, count: rows.length };
+      } catch (err) {
+        await storage.clearShareCache?.().catch(() => {}); // never leave a half-written archive behind
+        if (err instanceof DocumentError) throw err;
+        const text = String(err?.message ?? err);
+        if (/ENOSPC|No space|not enough space|storage/i.test(text)) throw new DocumentError('ZIP_NO_SPACE', 'Not enough free storage to create the ZIP file.');
+        if (/too large|too many/i.test(text)) throw new DocumentError('ZIP_TOO_LARGE', text);
+        throw new DocumentError('ZIP_FAILED', 'Could not create the ZIP file. Please try again.');
+      }
+    },
+
     async importFromPicker(categoryId) {
       if (!picker) throw new DocumentError('NO_PICKER', 'File picking is not available on this platform.');
       const file = await picker.pick();
@@ -282,6 +352,15 @@ export function capacitorAdapters(plugins = globalThis.Capacitor?.Plugins) {
     async clearShareCache() {
       try { await fs.rmdir({ path: SHARE_DIR, directory: 'CACHE', recursive: true }); } catch (e) { if (!isMissing(e)) throw e; }
     },
+    async readBase64(path) { return (await fs.readFile({ path, directory })).data; },
+    /** Starts a new temporary file in cache/share (any previous one is removed first). */
+    async beginShareFile(fileName) {
+      await storage.clearShareCache();
+      await fs.mkdir({ path: SHARE_DIR, directory: 'CACHE', recursive: true });
+      await fs.writeFile({ path: `${SHARE_DIR}/${fileName}`, data: '', directory: 'CACHE', encoding: 'utf8' });
+    },
+    async appendShareFile(fileName, base64) { await fs.appendFile({ path: `${SHARE_DIR}/${fileName}`, data: base64, directory: 'CACHE' }); },
+    async shareFileUri(fileName) { return (await fs.getUri({ path: `${SHARE_DIR}/${fileName}`, directory: 'CACHE' })).uri; },
     /** Copies a stored file to cache/share/<fileName> (one temporary copy at a time) and returns its file URI. */
     async stageForShare(path, fileName) {
       await storage.clearShareCache();
