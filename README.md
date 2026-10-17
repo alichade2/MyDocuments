@@ -11,6 +11,7 @@ Lightweight document manager: vanilla HTML/CSS/ES modules, SQLite metadata, file
 | `www/js/database.js` | SQLite driver, schema/migrations (`PRAGMA user_version`), transactions, default categories |
 | `www/js/documents.js` | Document service (import, list, rename, delete, open, reconcile) + Capacitor adapters |
 | `www/js/seed.js` | The 12 categories and demo document metadata |
+| `www/js/theme.js`, `www/js/theme-init.js` | Light/Dark theme preference (stored in localStorage, applied before first paint) |
 | `www/js/nav.js`, `www/js/menu.js` | Left navigation drawer component; menu items + Settings structure as data |
 | `www/js/zip.js` | Streaming ZIP writer + safe entry names (no dependencies) |
 | `www/js/selection.js` | Id-based multi-selection state for the All Documents tab |
@@ -73,6 +74,10 @@ The dashboard shows 12 categories (see `seed.js`). Each ships with sample docume
 ## Search
 
 The header search icon expands into a field. Results update as you type across all categories, by name (partial, case-insensitive) or by date (`2026-10-17`, `17/10/2026`, `17 Oct 2026`, ...). Documents with the same name are listed separately with their category and date.
+
+## Themes
+
+Settings -> Appearance -> Theme switches between Light (the default) and Dark. All colours are CSS tokens in `www/css/styles.css`: `:root` is Light, `:root[data-theme="dark"]` overrides them. The choice is the user's, not the device's, and is saved in `localStorage` and applied before the first paint. To retune a theme, edit the tokens only; `npm test` checks WCAG AA contrast for both palettes.
 
 ## Menu and Settings
 

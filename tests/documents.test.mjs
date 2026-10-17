@@ -733,3 +733,103 @@ test('settings sections: structured rows, version formatting with and without bu
   assert.equal(version(buildSettingsSections({ version: '2.0' })), '2.0');
   assert.equal(version(buildSettingsSections()), 'Unknown');
 });
+
+/* ---------- themes ---------- */
+import { readFileSync } from 'node:fs';
+import { THEME_KEY, THEME_OPTIONS, normalizeTheme, loadTheme, saveTheme, applyTheme } from '../www/js/theme.js';
+
+const memoryStore = (initial = {}) => {
+  const m = new Map(Object.entries(initial));
+  return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => { m.set(k, String(v)); }, m };
+};
+
+test('theme preference: light by default, persists dark, ignores junk, survives unavailable storage', () => {
+  assert.equal(normalizeTheme('dark'), 'dark');
+  for (const junk of [undefined, null, '', 'DARK', 'blue', 5]) assert.equal(normalizeTheme(junk), 'light');
+  const store = memoryStore();
+  assert.equal(loadTheme(store), 'light'); // nothing saved yet
+  assert.equal(saveTheme('dark', store), true);
+  assert.equal(store.m.get(THEME_KEY), 'dark');
+  assert.equal(loadTheme(store), 'dark'); // "restart": a fresh read sees the saved choice
+  saveTheme('light', store);
+  assert.equal(loadTheme(store), 'light');
+  assert.equal(loadTheme(memoryStore({ [THEME_KEY]: 'garbage' })), 'light');
+  const broken = { getItem() { throw new Error('denied'); }, setItem() { throw new Error('denied'); } };
+  assert.equal(loadTheme(broken), 'light');
+  assert.equal(saveTheme('dark', broken), false);
+  assert.deepEqual(THEME_OPTIONS.map((o) => o.id), ['light', 'dark']);
+  assert.equal(THEME_OPTIONS[0].description, 'A clean and bright appearance');
+  assert.equal(THEME_OPTIONS[1].description, 'Easy on the eyes in low-light environments');
+});
+
+test('applyTheme sets data-theme immediately, updates theme-color and the Android status-bar style', () => {
+  const attrs = {};
+  const meta = { v: '', setAttribute(k, v) { this.v = v; } };
+  const root = { setAttribute: (k, v) => { attrs[k] = v; }, classList: { add() {}, remove() {} }, ownerDocument: { querySelector: () => meta } };
+  globalThis.getComputedStyle = () => ({ getPropertyValue: () => ' #1c3557 ' });
+  const styles = [];
+  const bars = { setStyle: (o) => { styles.push(o.style); return Promise.resolve(); } };
+  assert.equal(applyTheme('dark', { root, systemBars: bars }), 'dark');
+  assert.equal(attrs['data-theme'], 'dark');
+  assert.equal(meta.v, '#1c3557');
+  assert.equal(applyTheme('whatever', { root, systemBars: bars }), 'light');
+  assert.equal(attrs['data-theme'], 'light');
+  assert.deepEqual(styles, ['DARK', 'DEFAULT']);
+  delete globalThis.getComputedStyle;
+});
+
+const CSS = readFileSync(new URL('../www/css/styles.css', import.meta.url), 'utf8');
+const tokens = (selector) => {
+  const body = CSS.slice(CSS.indexOf(selector)).match(/\{([^}]*)\}/)[1];
+  return Object.fromEntries([...body.matchAll(/--([\w-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]));
+};
+const light = tokens(':root {');
+const dark = { ...light, ...tokens(':root[data-theme="dark"] {') };
+const lum = (hex) => {
+  if (hex.length === 4) hex = `#${[...hex.slice(1)].map((c) => c + c).join('')}`;
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+const contrast = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+
+test('light theme keeps the original MyDocs colours (baseline guard)', () => {
+  assert.equal(light['primary'], '#1f5fbf');
+  assert.equal(light['header-bg'], '#1f5fbf');
+  assert.equal(light['bg'], '#f4f6fb');
+  assert.equal(light['surface'], '#fff');
+  assert.equal(light['card'], '#fff');
+  assert.equal(light['text'], '#1c1b1f');
+  assert.equal(light['primary-container'], '#dbe6fb');
+});
+
+test('dark palette follows the specification', () => {
+  assert.equal(dark['bg'], '#121212');
+  assert.equal(dark['surface'], '#1e1e1e');
+  assert.equal(dark['card'], '#252525');
+  assert.equal(dark['text'], '#f5f5f5');
+  assert.equal(dark['muted'], '#bdbdbd');
+  assert.equal(dark['primary'], '#90caf9');
+  assert.equal(dark['outline'], '#383838');
+});
+
+test('both themes meet WCAG AA contrast (4.5:1) for text, accents, header, buttons, errors and banners', () => {
+  const pairs = [
+    ['text', 'bg'], ['text', 'surface'], ['text', 'card'], ['muted', 'bg'], ['muted', 'card'], ['muted', 'surface'],
+    ['primary', 'bg'], ['primary', 'card'], ['primary', 'surface'], ['primary', 'primary-container'], ['text', 'primary-container'],
+    ['on-primary', 'primary'], ['on-header', 'header-bg'], ['error', 'card'], ['error', 'surface'], ['banner-text', 'banner-bg'], ['toast-text', 'toast-bg'],
+  ];
+  for (const [name, theme] of [['light', light], ['dark', dark]]) {
+    for (const [fg, bg] of pairs) {
+      const ratio = contrast(theme[fg], theme[bg]);
+      assert.ok(ratio >= 4.5, `${name}: ${fg} on ${bg} = ${ratio.toFixed(2)}`);
+    }
+  }
+});
+
+test('theme comes only from the user setting: no prefers-color-scheme override, every theme token is defined for dark', () => {
+  assert.ok(!CSS.includes('prefers-color-scheme'));
+  const overridden = tokens(':root[data-theme="dark"] {');
+  for (const key of Object.keys(light)) {
+    if (!['radius'].includes(key)) assert.ok(key in overridden, `dark theme defines --${key}`);
+  }
+});

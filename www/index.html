@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#1f5fbf">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self' http://localhost https://localhost capacitor://localhost">
   <title>MyDocs</title>
+  <script src="js/theme-init.js"></script>
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
@@ -141,6 +142,12 @@
       <button type="button" class="btn text vw-close" id="vw-close">Close</button>
     </div>
     <img id="vw-img" alt="">
+  </dialog>
+
+  <dialog id="theme-dialog" aria-labelledby="th-title">
+    <h3 id="th-title">Choose theme</h3>
+    <div id="th-options" role="radiogroup" aria-labelledby="th-title"></div>
+    <div class="dialog-actions"><button type="button" class="btn text" id="th-close">Close</button></div>
   </dialog>
 
   <div id="drawer-scrim" class="drawer-scrim" hidden></div>

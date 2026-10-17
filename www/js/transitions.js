@@ -69,7 +69,7 @@ export async function expandCategory(els) {
   const anims = [press];
 
   anims.push(view.animate(
-    [{ clipPath: insetFor(cardRect, geo), backgroundColor: token('--surface') }, { clipPath: FULL, backgroundColor: token('--bg') }],
+    [{ clipPath: insetFor(cardRect, geo), backgroundColor: token('--card') }, { clipPath: FULL, backgroundColor: token('--bg') }],
     { duration: T_EXPAND, easing: EASE_OUT, fill: 'both' }));
   anims.push(dashboard.animate([{ opacity: 1 }, { opacity: 0.4 }], { duration: T_EXPAND * 0.6, easing: EASE_STD, fill: 'forwards' }));
 
@@ -115,7 +115,7 @@ export async function collapseCategory(els) {
     view.animate(
       [{ clipPath: FULL, opacity: 1, backgroundColor: token('--bg'), offset: 0 },
         { clipPath: insetFor(cardRect, geo), opacity: 1, offset: 0.65 },
-        { clipPath: insetFor(cardRect, geo), opacity: 0, backgroundColor: token('--surface'), offset: 1 }],
+        { clipPath: insetFor(cardRect, geo), opacity: 0, backgroundColor: token('--card'), offset: 1 }],
       { duration: T_COLLAPSE, easing: EASE_STD, fill: 'both' }),
     categories.animate([{ opacity: 0.4 }, { opacity: 1 }], { duration: T_COLLAPSE, easing: EASE_STD }),
     card.animate([{ transform: 'scale(1)' }, { transform: 'scale(.96)', offset: 0.6 }, { transform: 'scale(1)' }], { duration: T_COLLAPSE, easing: EASE_STD }),

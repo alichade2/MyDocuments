@@ -8,6 +8,7 @@ import { normalizeQuery } from './search.js';
 import { createSelection } from './selection.js';
 import { createDrawer } from './nav.js';
 import { MENU_ITEMS, buildSettingsSections } from './menu.js';
+import { THEME_OPTIONS, loadTheme, saveTheme, applyTheme } from './theme.js';
 
 const $ = (id) => document.getElementById(id);
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -33,6 +34,9 @@ const ICONS = {
   share: 'M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 1 0-3-3c0 .24.04.47.09.7L8.04 9.81A2.99 2.99 0 0 0 6 9a3 3 0 1 0 0 6c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65a2.92 2.92 0 1 0 2.92-2.92Z',
   delete: 'M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12ZM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4Z',
   settings: 'M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58ZM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6Z',
+  sun: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8ZM11 1h2v3h-2V1Zm0 19h2v3h-2v-3ZM1 11h3v2H1v-2Zm19 0h3v2h-3v-2ZM4.22 5.64l1.42-1.42 2.12 2.12-1.42 1.42-2.12-2.12Zm12.02 12.02 1.42-1.42 2.12 2.12-1.42 1.42-2.12-2.12ZM5.64 19.78l-1.42-1.42 2.12-2.12 1.42 1.42-2.12 2.12ZM17.66 7.76l-1.42-1.42 2.12-2.12 1.42 1.42-2.12 2.12Z',
+  moon: 'M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1Z',
+  theme: 'M12 22c5.52 0 10-4.48 10-10S17.52 2 12 2 2 6.48 2 12s4.48 10 10 10Zm0-2V4a8 8 0 1 1 0 16Z',
   chevron: 'M9 5.6 15.4 12 9 18.4 10.4 20l8-8-8-8L9 5.6Z',
 };
 const FILE_TYPES = {
@@ -423,6 +427,13 @@ function handleDocAction(e) {
 function wireEvents() {
   wireSearch();
   $('page-back').addEventListener('click', closeSettings);
+  $('settings-list').addEventListener('click', (e) => { if (e.target.closest('[data-action="theme"]')) openThemeDialog(); });
+  $('th-options').addEventListener('change', (e) => {
+    if (e.target.name !== 'theme') return;
+    setTheme(e.target.value);
+    setTimeout(() => $('theme-dialog').close(), 180); // brief moment to see the new selection
+  });
+  $('th-close').addEventListener('click', () => $('theme-dialog').close());
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && nav.page && !drawer.isOpen() && !document.querySelector('dialog[open]')) closeSettings(); });
   wireAllDocuments();
   // One delegated listener per container; nothing is re-registered when views change.
@@ -764,11 +775,51 @@ const drawer = createDrawer({
   onSelect: (id) => destinations[id]?.(),
 });
 
-function renderSettings(info = {}) {
-  $('settings-list').replaceChildren(...buildSettingsSections(info).map((sec) => el('section', { class: 'settings-section', 'aria-label': sec.title },
+let settingsInfo = {};
+let theme = loadTheme();
+
+function renderSettings(info = settingsInfo) {
+  settingsInfo = info;
+  const sections = buildSettingsSections({ ...info, theme });
+  $('settings-list').replaceChildren(...sections.map((sec) => el('section', { class: 'settings-section', 'aria-label': sec.title },
     el('h2', {}, sec.title),
-    el('ul', { class: 'settings-rows' }, ...sec.rows.map((r) => el('li', { class: 'settings-row' },
-      el('span', { class: 'settings-label' }, r.label), r.value ? el('span', { class: 'settings-value' }, r.value) : document.createTextNode('')))))));
+    el('ul', { class: 'settings-rows' }, ...sec.rows.map((r) => {
+      if (r.action) { // tappable row (icon, title, description, current value)
+        const btn = el('button', { type: 'button', class: 'settings-action', 'data-action': r.action, 'aria-label': `${r.label}: ${r.value ?? ''}. ${r.description ?? ''}` },
+          el('span', { class: 'settings-icon' }, svgIcon(r.icon)),
+          el('span', { class: 'settings-text' }, el('span', { class: 'settings-label' }, r.label), el('span', { class: 'settings-desc' }, r.description ?? '')),
+          el('span', { class: 'settings-value' }, r.value ?? ''), svgIcon('chevron', 'settings-chevron'));
+        return el('li', {}, btn);
+      }
+      return el('li', { class: 'settings-row' }, el('span', { class: 'settings-label' }, r.label), r.value ? el('span', { class: 'settings-value' }, r.value) : document.createTextNode(''));
+    })))));
+}
+
+/** Applies and stores a theme right away; every screen updates through the CSS tokens (no restart, no re-render). */
+function setTheme(next) {
+  theme = applyTheme(next, { animate: true });
+  saveTheme(theme);
+  renderSettings();
+  renderThemeOptions();
+}
+
+function renderThemeOptions() {
+  $('th-options').replaceChildren(...THEME_OPTIONS.map((o) => {
+    const input = el('input', { type: 'radio', name: 'theme', value: o.id, 'aria-label': `${o.label} theme. ${o.description}` });
+    input.checked = o.id === theme;
+    return el('label', { class: `theme-option${o.id === theme ? ' selected' : ''}`, 'data-theme-option': o.id },
+      el('span', { class: 'settings-icon' }, svgIcon(o.icon)),
+      el('span', { class: 'settings-text' }, el('strong', {}, o.label), el('span', { class: 'settings-desc' }, o.description)),
+      ...(o.id === theme ? [el('span', { class: 'theme-selected-mark' }, 'Selected')] : []),
+      input);
+  }));
+}
+
+function openThemeDialog() {
+  if ($('theme-dialog').open) return;
+  renderThemeOptions();
+  $('theme-dialog').showModal();
+  $('th-options').querySelector('input:checked')?.focus({ preventScroll: true });
 }
 
 function openSettings() {
@@ -808,6 +859,7 @@ function wireBackButton() {
   appPlugin.addListener('backButton', () => {
     if ($('progress-dialog').open) return; // ZIP being prepared
     if (drawer.isOpen()) { drawer.close(); return; }
+    if ($('theme-dialog').open) { $('theme-dialog').close(); return; }
     if ($('viewer-dialog').open) { $('vw-close').click(); return; }
     if ($('name-dialog').open) { if (!saving) closeNameDialog(); return; }
     if ($('preview-dialog').open) { releasePending(); $('preview-dialog').close(); return; }
@@ -835,6 +887,12 @@ async function init() {
     b.textContent = 'Browser preview: sample data from an in-memory mock, nothing is saved. Run the Android app for SQLite storage.';
     b.hidden = false;
   }
+  applyTheme(theme); // idempotent: theme-init.js already set data-theme before first paint
+  // Android resets the status-bar icon style while the activity starts and when it returns from the background,
+  // so re-apply the saved theme once the app is up and on every resume.
+  const reapply = () => applyTheme(theme);
+  setTimeout(reapply, 700);
+  globalThis.Capacitor?.Plugins?.App?.addListener?.('resume', () => setTimeout(reapply, 150));
   renderSettings();
   globalThis.Capacitor?.Plugins?.App?.getInfo?.().then((info) => renderSettings({ version: info.version, build: info.build })).catch(() => {});
   await buildDashboard();
