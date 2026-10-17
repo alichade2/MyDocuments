@@ -91,7 +91,7 @@ The hamburger icon in the header opens a left navigation drawer. To add a destin
 
 ## Custom categories
 
-Settings -> Manage Categories lets users add, rename/re-icon and delete their own categories (built-in ones are permanent). Categories are stored in SQLite (`categories.is_custom`, unique case-insensitive name) and only the icon *key* is saved; to add an icon, add its SVG path to `ICON_PATHS` in `www/js/icons.js` and its key/label to `CATEGORY_ICON_CHOICES`. Deleting a non-empty category requires moving its documents to another category.
+The sidebar's Manage Categories screen lets users add, rename/re-icon and delete their own categories (built-in ones are permanent). Categories are stored in SQLite (`categories.is_custom`, unique case-insensitive name) and only the icon *key* is saved; to add an icon, add its SVG path to `ICON_PATHS` in `www/js/icons.js` and its key/label to `CATEGORY_ICON_CHOICES`. Deleting a non-empty category requires moving its documents to another category.
 
 ## All Documents and ZIP sharing
 

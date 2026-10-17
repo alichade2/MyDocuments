@@ -408,7 +408,6 @@ function wireEvents() {
   $('page-back').addEventListener('click', pageBack);
   $('settings-list').addEventListener('click', (e) => {
     if (e.target.closest('[data-action="theme"]')) openThemeDialog();
-    else if (e.target.closest('[data-action="manage-categories"]')) openManageCategories();
     else if (e.target.closest('[data-action="app-lock"]')) toggleAppLock();
   });
   wireCategories();
@@ -837,7 +836,7 @@ async function promptUnlockAfterReturn() {
 const nav = { page: null, returnTab: 'category', returnScroll: 0 };
 const scrollerOf = (tab) => $(tab === 'all' ? 'all-scroller' : 'scroller');
 /** Drawer destinations by menu item id; add an entry here (and in menu.js) for new screens. */
-const destinations = { settings: () => openSettings() };
+const destinations = { 'manage-categories': () => openManageCategories(), settings: () => openSettings() };
 
 const drawer = createDrawer({
   drawer: $('drawer'), scrim: $('drawer-scrim'), list: $('drawer-items'), openButton: $('menu-open'),
@@ -849,11 +848,10 @@ const drawer = createDrawer({
 
 let settingsInfo = {};
 let theme = loadTheme();
-let customCategories = 0;
 
 function renderSettings(info = settingsInfo) {
   settingsInfo = info;
-  const sections = buildSettingsSections({ ...info, theme, customCategories, appLock: appLock.enabled });
+  const sections = buildSettingsSections({ ...info, theme, appLock: appLock.enabled });
   $('settings-list').replaceChildren(...sections.map((sec) => el('section', { class: 'settings-section', 'aria-label': sec.title },
     el('h2', {}, sec.title),
     el('ul', { class: 'settings-rows' }, ...sec.rows.map((r) => {
@@ -880,7 +878,6 @@ const catUi = { editing: null, icon: DEFAULT_CATEGORY_ICON, saving: false, delet
 
 async function refreshManageList() {
   const cats = await service.listCategoriesWithCounts();
-  customCategories = cats.filter((c) => c.isCustom).length;
   $('cat-list').replaceChildren(...cats.map((c) => {
     const row = el('li', { class: 'cat-row', 'data-category-id': String(c.id) },
       el('span', { class: 'category-icon' }, svgIcon(c.icon)),
@@ -1071,42 +1068,40 @@ function openThemeDialog() {
   $('th-options').querySelector('input:checked')?.focus({ preventScroll: true });
 }
 
-function openSettings() {
-  if (nav.page === 'settings' || motion.busy || allState.busy) return; // repeated taps do nothing
+/** Drawer pages (Manage Categories, Settings): one page at a time, opened from either tab, Back returns to that tab. */
+const PAGES = { settings: { title: 'Settings', scroller: 'settings-scroller' }, categories: { title: 'Manage Categories', scroller: 'categories-scroller' } };
+
+function openPage(name) {
+  if (nav.page === name || motion.busy || allState.busy) return; // repeated taps do nothing
+  if (nav.page !== null) return; // pages are only reachable from a main tab (the drawer is blocked on a page)
   if (search.active) closeSearch();
-  nav.page = 'settings';
+  nav.page = name;
   nav.returnTab = tabs.current;
   nav.returnScroll = scrollerOf(tabs.current).scrollTop;
   scrollerOf(tabs.current).hidden = true;
-  $('settings-scroller').hidden = false;
-  $('settings-scroller').scrollTop = 0;
+  $(PAGES[name].scroller).hidden = false;
   document.body.classList.add('page-settings');
   $('page-back').hidden = false;
-  $('app-title').textContent = 'Settings';
-  drawer.setActive('settings');
+  $('app-title').textContent = PAGES[name].title;
+  drawer.setActive(name === 'categories' ? 'manage-categories' : 'settings');
+}
+
+function openSettings() {
+  openPage('settings');
+  if (nav.page !== 'settings') return;
+  $('settings-scroller').scrollTop = 0;
   $('page-back').focus({ preventScroll: true });
 }
 
-/** Back arrow / Android Back on a settings sub-page: Manage Categories -> Settings -> previous screen. */
+/** Back arrow / Android Back on a drawer page: returns to the tab (and scroll position) it was opened from. */
 function pageBack() {
-  if (nav.page === 'categories') {
-    nav.page = 'settings';
-    $('categories-scroller').hidden = true;
-    $('settings-scroller').hidden = false;
-    $('app-title').textContent = 'Settings';
-    renderSettings();
-    return;
-  }
   closeSettings();
 }
 
 async function openManageCategories() {
-  if (nav.page !== 'settings') return;
-  nav.page = 'categories';
-  $('settings-scroller').hidden = true;
-  $('categories-scroller').hidden = false;
+  openPage('categories');
+  if (nav.page !== 'categories') return;
   $('cat-scroller').scrollTop = 0; // only the list scrolls; the Add button stays fixed
-  $('app-title').textContent = 'Manage Categories';
   await refreshManageList();
   $('cat-add').focus({ preventScroll: true });
 }
@@ -1176,7 +1171,6 @@ async function init() {
   renderSettings();
   globalThis.Capacitor?.Plugins?.App?.getInfo?.().then((info) => renderSettings({ version: info.version, build: info.build })).catch(() => {});
   await buildDashboard();
-  customCategories = (await service.listCategories()).filter((c) => c.is_custom === 1).length;
   renderSettings();
 }
 
