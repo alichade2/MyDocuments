@@ -11,10 +11,12 @@ import { MENU_ITEMS, buildSettingsSections } from './menu.js';
 import { THEME_OPTIONS, loadTheme, saveTheme, applyTheme } from './theme.js';
 import { iconPath, CATEGORY_ICON_CHOICES, DEFAULT_CATEGORY_ICON } from './icons.js';
 import { createAppLock, nativeAuthenticator, previewAuthenticator, lockMessage } from './applock.js';
+import { SIZE_LIMIT_OPTIONS_MB, loadSizeLimitMb, saveSizeLimitMb, setSizeLimitMb, getSizeLimitMb, formatSize as formatSizeText } from './sizelimit.js';
 import { t, tn, countLabel, categoryLabel, errorText, LANGUAGES, loadLanguage, saveLanguage, setLanguage, getLanguage, applyStaticTranslations } from './i18n.js';
 
 const $ = (id) => document.getElementById(id);
 setLanguage(loadLanguage()); // before anything is rendered; English unless the user chose otherwise
+setSizeLimitMb(loadSizeLimitMb()); // document size limit: 5 MB unless the user chose another
 applyStaticTranslations();
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -53,12 +55,8 @@ function svgIcon(name, cls = '') {
 
 const plural = (n) => countLabel(n);
 
-function formatSize(bytes) {
-  if (!bytes) return '';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1048576) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / 1048576).toFixed(1)} MB`;
-}
+/** Size text on cards: same decimal units as the size limit (1 MB = 1,000,000 bytes). */
+const formatSize = (bytes) => (bytes ? formatSizeText(bytes) : '');
 
 let toastTimer;
 function showMessage(text) {
@@ -413,6 +411,9 @@ function wireEvents() {
     if (e.target.closest('[data-action="theme"]')) openThemeDialog();
     else if (e.target.closest('[data-action="language"]')) openLanguageDialog();
     else if (e.target.closest('[data-action="app-lock"]')) toggleAppLock();
+  });
+  $('settings-list').addEventListener('change', (e) => {
+    if (e.target.dataset?.setting === 'size-limit') setDocumentSizeLimit(e.target.value);
   });
   wireCategories();
   $('th-options').addEventListener('change', (e) => {
@@ -861,10 +862,21 @@ let theme = loadTheme();
 
 function renderSettings(info = settingsInfo) {
   settingsInfo = info;
-  const sections = buildSettingsSections({ ...info, theme, appLock: appLock.enabled, languageName: t(`lang.name.${getLanguage()}`) });
+  const sections = buildSettingsSections({ ...info, theme, appLock: appLock.enabled, sizeLimitMb: getSizeLimitMb(), languageName: t(`lang.name.${getLanguage()}`) });
   $('settings-list').replaceChildren(...sections.map((sec) => el('section', { class: 'settings-section', 'aria-label': sec.title },
     el('h2', {}, sec.title),
     el('ul', { class: 'settings-rows' }, ...sec.rows.map((r) => {
+      if (r.select) { // dropdown row (Document Size Limit)
+        const id = `setting-${r.id}`;
+        const select = el('select', { class: 'settings-select', id, 'data-setting': r.id, 'aria-label': `${r.label}. ${r.description ?? ''}` },
+          ...r.select.options.map((o) => el('option', { value: String(o.value) }, o.label)));
+        select.value = String(r.select.value);
+        return el('li', { class: 'settings-field' },
+          el('label', { class: 'settings-selectrow', for: id },
+            el('span', { class: 'settings-icon' }, svgIcon(r.icon)),
+            el('span', { class: 'settings-text' }, el('span', { class: 'settings-label' }, r.label), el('span', { class: 'settings-desc' }, r.description ?? '')),
+            select));
+      }
       if (r.toggle) { // on/off switch row (App Lock)
         return el('li', {}, el('button', { type: 'button', class: 'settings-switch', role: 'switch', 'data-action': r.action, 'aria-checked': String(r.checked), 'aria-label': `${r.label}. ${r.description ?? ''}` },
           el('span', { class: 'settings-icon' }, svgIcon(r.icon)),
@@ -1126,6 +1138,14 @@ function refreshLanguageUI() {
   updateSelectionUI();
   if (nav.page === 'categories') refreshManageList();
   if (appLock.locked) { setLockMessage(t('lock.msg'), false); $('lock-unlock').textContent = t('lock.unlock'); }
+}
+
+/** Applies and stores the document size limit right away: the next upload or capture is judged against it. */
+function setDocumentSizeLimit(value) {
+  const mb = setSizeLimitMb(value);
+  saveSizeLimitMb(mb);
+  renderSettings();
+  showMessage(t('limit.changed', { limit: `${mb} MB` }));
 }
 
 /** Applies and stores the language right away (no restart); the choice is read again on every launch. */

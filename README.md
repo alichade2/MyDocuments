@@ -14,6 +14,7 @@ Lightweight document manager: vanilla HTML/CSS/ES modules, SQLite metadata, file
 | `www/js/theme.js`, `www/js/theme-init.js` | Light/Dark theme preference (stored in localStorage, applied before first paint) |
 | `www/js/applock.js`, `www/js/lock-init.js` | App Lock policy (when to ask; never what to compare) and the pre-paint "locked" marker; native side: `android/.../AppLockPlugin.java` (BiometricPrompt) |
 | `www/js/i18n.js`, `www/js/locales/{en,hi}.js`, `www/js/lang-init.js` | Localisation: `t()` lookup, English + Hindi tables, language preference (localStorage), built-in category labels |
+| `www/js/sizelimit.js` | Document size limit: allowed sizes (3/5/8/12/15 MB), saved setting, `checkSize()` (1 MB = 1,000,000 bytes) used by upload, camera and import |
 | `www/js/icons.js` | Icon registry: stable key -> SVG path, the 25 category icon choices, folder fallback |
 | `www/js/nav.js`, `www/js/menu.js` | Left navigation drawer component; menu items + Settings structure as data |
 | `www/js/zip.js` | Streaming ZIP writer + safe entry names (no dependencies) |
@@ -81,6 +82,10 @@ The header search icon expands into a field. Results update as you type across a
 ## Themes
 
 Settings -> Appearance -> Theme switches between Light (the default) and Dark. All colours are CSS tokens in `www/css/styles.css`: `:root` is Light, `:root[data-theme="dark"]` overrides them. The choice is the user's, not the device's, and is saved in `localStorage` and applied before the first paint. To retune a theme, edit the tokens only; `npm test` checks WCAG AA contrast for both palettes.
+
+## Document size limit
+
+Settings -> Document Size Limit (3, 5, 8, 12 or 15 MB, default 5 MB). Every import path calls `enforceSize()` from `documents.js`, which uses `checkSize()` in `sizelimit.js`; never compare sizes anywhere else. Nothing above 15 MB is accepted under any setting. A new import entry point only needs to go through `importFile()` (it re-checks the real size of the data) and, if it reads files itself, check the reported size before reading (see `pickFile()` / `readLimited()`).
 
 ## Languages (English / हिन्दी)
 

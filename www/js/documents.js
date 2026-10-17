@@ -2,15 +2,15 @@
 // Storage / picker / viewer are injected adapters so no native API reaches the UI.
 
 import { normalizeQuery, escapeLike, parseDateQuery } from './search.js';
-import { writeZip, uniqueEntryPaths, ZIP_LIMITS } from './zip.js';
+import { writeZip, uniqueEntryPaths, ZIP_LIMITS, bytesToBase64 } from './zip.js';
 import { DEFAULT_CATEGORY_ICON, isChoosableIcon } from './icons.js';
 import { CUSTOM_ORDER_BASE } from './seed.js';
+import { checkSize, sizeLimitBytes, byteLengthOfBase64, MB } from './sizelimit.js';
 
 export const DOCS_DIR = 'documents';
 const SHARE_DIR = 'share';
 export const THUMBS_DIR = 'thumbnails'; // outside DOCS_DIR so reconcile can sweep each independently
 export const IMAGE_TYPES = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif']);
-export const MAX_FILE_BYTES = 25 * 1024 * 1024;
 export const MAX_NAME_LENGTH = 120;
 
 export const SUPPORTED_TYPES = {
@@ -36,6 +36,16 @@ function withTimeout(promise, ms) {
 
 export class DocumentError extends Error {
   constructor(code, message) { super(message); this.name = 'DocumentError'; this.code = code; }
+}
+
+/**
+ * The single place where a document size is enforced (picked files, camera images and the final import all call it).
+ * Throws a DocumentError (FILE_TOO_LARGE / FILE_TOO_LARGE_MAX / FILE_SIZE_UNKNOWN) when the size is not allowed.
+ * @param {number} bytes real size in bytes @param {'file'|'capture'} kind @param {{atLeast?: boolean, limitMb?: number}} [opts]
+ */
+export function enforceSize(bytes, kind = 'file', opts = {}) {
+  const problem = checkSize(bytes, { kind, ...opts });
+  if (problem) throw Object.assign(new DocumentError(problem.code, problem.message), { size: problem.size, limitMb: problem.limitMb });
 }
 
 export function extensionOf(filename) {
@@ -240,7 +250,9 @@ export function createDocumentService({ db, storage, picker, viewer, camera, sha
       const ext = extensionOf(file?.name);
       if (!SUPPORTED_TYPES[ext]) throw new DocumentError('UNSUPPORTED_TYPE', `Unsupported file type ".${ext || '?'}".`);
       if (!file.data) throw new DocumentError('EMPTY_FILE', 'The selected file has no content.');
-      if (file.size > MAX_FILE_BYTES) throw new DocumentError('TOO_LARGE', 'File is larger than 25 MB.');
+      // Final persistence boundary: whatever path the file came from, its real size is judged here against the limit in force now.
+      const actualSize = byteLengthOfBase64(file.data);
+      enforceSize(Math.max(actualSize, Number.isFinite(file.size) ? file.size : 0), file.source === 'camera' ? 'capture' : 'file');
       const name = validateName(displayName ?? file.name.replace(/\.[^.]+$/, ''));
       const id = uuid();
       const filePath = `${DOCS_DIR}/${id}.${ext}`; // collision-resistant; duplicate display names are fine
@@ -257,7 +269,7 @@ export function createDocumentService({ db, storage, picker, viewer, camera, sha
         await db.transaction(() => db.run(
           `INSERT INTO documents (category_id, name, original_filename, file_type, mime_type, file_path, file_size, created_at, updated_at, thumb_path)
            VALUES (?,?,?,?,?,?,?,?,?,?);`,
-          [categoryId, name, file.name, ext, SUPPORTED_TYPES[ext], filePath, file.size ?? 0, ts, ts, thumbPath]));
+          [categoryId, name, file.name, ext, SUPPORTED_TYPES[ext], filePath, actualSize, ts, ts, thumbPath]));
       } catch (err) {
         await storage.remove(filePath).catch(() => {}); // keep file system and DB consistent
         if (thumbPath) await storage.remove(thumbPath).catch(() => {});
@@ -270,7 +282,18 @@ export function createDocumentService({ db, storage, picker, viewer, camera, sha
     /** Step 1 of the upload flow: let the user pick a file. Returns null when cancelled. */
     async pickFile() {
       if (!picker) throw new DocumentError('NO_PICKER', 'File picking is not available on this platform.');
-      return (await picker.pick()) ?? null;
+      const picked = await picker.pick();
+      if (!picked) return null;
+      if (typeof picked.read !== 'function') { // adapter already read the data: validate what it returned
+        enforceSize(Math.max(byteLengthOfBase64(picked.data), Number.isFinite(picked.size) ? picked.size : 0), 'file');
+        return picked;
+      }
+      // Lazy picker (Android): the size reported by the provider is checked BEFORE a single byte is read or copied.
+      if (picked.size > 0) enforceSize(picked.size, 'file');
+      const res = await picked.read({ maxBytes: sizeLimitBytes() });
+      if (res.tooLarge) enforceSize(res.size, 'file', { atLeast: res.atLeast });
+      enforceSize(res.size, 'file'); // the bytes actually received, in case the provider's metadata was wrong
+      return { name: picked.name, mimeType: picked.mimeType, size: res.size, data: res.data };
     },
 
     /** Camera capture (step 1 of the capture flow). Returns a file-like object, or null when cancelled. */
@@ -281,8 +304,9 @@ export function createDocumentService({ db, storage, picker, viewer, camera, sha
       const d = new Date(now());
       const p = (n) => String(n).padStart(2, '0');
       const stamp = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
-      const padding = (shot.data.match(/=+$/) ?? [''])[0].length;
-      return { name: `Captured_${stamp}.jpg`, mimeType: 'image/jpeg', size: Math.floor((shot.data.length * 3) / 4) - padding, data: shot.data };
+      const size = byteLengthOfBase64(shot.data);
+      enforceSize(size, 'capture'); // the final image, checked again here (the adapter checks the file before reading it)
+      return { name: `Captured_${stamp}.jpg`, mimeType: 'image/jpeg', size, data: shot.data, source: 'camera' };
     },
 
     /** URL the WebView can display for the document's thumbnail (null when there is none). */
@@ -379,8 +403,7 @@ export function createDocumentService({ db, storage, picker, viewer, camera, sha
     },
 
     async importFromPicker(categoryId) {
-      if (!picker) throw new DocumentError('NO_PICKER', 'File picking is not available on this platform.');
-      const file = await picker.pick();
+      const file = await service.pickFile();
       return file ? service.importFile(categoryId, file) : null;
     },
 
@@ -428,6 +451,46 @@ export function createDocumentService({ db, storage, picker, viewer, camera, sha
   return service;
 }
 
+/** Keep counting (without keeping data) up to this many bytes when a provider reports no size, so the message can show a real size. */
+const COUNT_CAP_BYTES = 100 * MB;
+
+/**
+ * Reads a file through its WebView URL but never holds more than `maxBytes` in memory. Resolves with
+ * { data(base64), size } or, when the file is bigger than allowed, { tooLarge: true, size, atLeast }.
+ */
+export async function readLimited(url, maxBytes, fetchImpl = globalThis.fetch) {
+  let response;
+  try { response = await fetchImpl(url); } catch { throw new DocumentError('FILE_READ_FAILED', 'The selected file could not be read. Please try again or choose another file.'); }
+  if (!response?.ok) throw new DocumentError('FILE_READ_FAILED', 'The selected file could not be read. Please try again or choose another file.');
+  const declared = Number(response.headers?.get?.('content-length')) || 0;
+  const reader = response.body?.getReader?.();
+  if (declared > maxBytes) { await reader?.cancel?.().catch?.(() => {}); return { tooLarge: true, size: declared }; }
+  try {
+    if (!reader) { // no streaming support: the blob size is known before it is encoded
+      const blob = await response.blob();
+      return blob.size > maxBytes ? { tooLarge: true, size: blob.size } : { data: bytesToBase64(new Uint8Array(await blob.arrayBuffer())), size: blob.size };
+    }
+    const chunks = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total <= maxBytes) { chunks.push(value); continue; }
+      chunks.length = 0; // over the limit: stop keeping data, only count
+      if (total > COUNT_CAP_BYTES) { await reader.cancel(); return { tooLarge: true, size: total, atLeast: true }; }
+    }
+    if (total > maxBytes) return { tooLarge: true, size: total };
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const c of chunks) { bytes.set(c, offset); offset += c.byteLength; }
+    return { data: bytesToBase64(bytes), size: total };
+  } catch (e) {
+    if (e instanceof DocumentError) throw e;
+    throw new DocumentError('FILE_READ_FAILED', 'The selected file could not be read. Please try again or choose another file.');
+  }
+}
+
 /** Native adapters (Capacitor). Used only on device. */
 export function capacitorAdapters(plugins = globalThis.Capacitor?.Plugins, external = (fn) => fn()) {
   // `external` wraps every call that opens an Android screen of our own (picker, viewer, share sheet, camera) so
@@ -468,15 +531,27 @@ export function capacitorAdapters(plugins = globalThis.Capacitor?.Plugins, exter
     },
   };
   const picker = plugins?.FilePicker && {
+    /**
+     * Opens the system picker (Storage Access Framework) WITHOUT reading the file. The result carries the size the provider
+     * reports (0 = unknown) and a read() that streams the content through the WebView's content:// bridge, so no filesystem
+     * path is needed and the original file is only ever read, never changed.
+     */
     async pick() {
+      let files;
       try {
-        const { files } = await external(() => plugins.FilePicker.pickFiles({ limit: 1, readData: true, types: [...new Set(Object.values(SUPPORTED_TYPES))] }));
-        const f = files?.[0];
-        return f ? { name: f.name, mimeType: f.mimeType, size: f.size, data: f.data } : null;
+        ({ files } = await external(() => plugins.FilePicker.pickFiles({ limit: 1, readData: false, types: [...new Set(Object.values(SUPPORTED_TYPES))] })));
       } catch (e) {
         if (/cancel/i.test(String(e?.message ?? e))) return null;
         throw e;
       }
+      const f = files?.[0];
+      if (!f) return null;
+      const url = f.webPath || (f.path ? globalThis.Capacitor.convertFileSrc(f.path) : '');
+      return {
+        name: f.name, mimeType: f.mimeType,
+        size: Number(f.size) > 0 ? Number(f.size) : 0,
+        read: ({ maxBytes }) => readLimited(url, maxBytes),
+      };
     },
   };
   const viewer = plugins?.FileViewer && {
@@ -502,20 +577,21 @@ export function capacitorAdapters(plugins = globalThis.Capacitor?.Plugins, exter
   const cam = plugins?.Camera;
   const camera = cam && {
     async capture() {
+      let res = null;
+      /** Removes the temporary image the camera left behind (best effort; also when it is rejected). */
+      const discard = async () => { const p = res?.uri ?? res?.path; if (p && plugins.Filesystem) await plugins.Filesystem.deleteFile({ path: p }).catch(() => {}); };
       try {
         // Uses the system camera app (no CAMERA permission is declared, so none is requested).
-        const res = await external(() => cam.takePhoto({ quality: 90, targetWidth: 2400, targetHeight: 2400, correctOrientation: true, encodingType: 0, saveToGallery: false }));
+        res = await external(() => cam.takePhoto({ quality: 90, targetWidth: 2400, targetHeight: 2400, correctOrientation: true, encodingType: 0, saveToGallery: false }));
         const url = res.webPath ?? res.uri;
         if (!url) throw new DocumentError('CAPTURE_FAILED', 'The camera did not return a photo.');
         const blob = await (await fetch(globalThis.Capacitor.convertFileSrc(url))).blob();
-        const data = await new Promise((resolve, reject) => {
-          const r = new FileReader();
-          r.onload = () => resolve(String(r.result).split(',')[1]);
-          r.onerror = () => reject(r.error);
-          r.readAsDataURL(blob);
-        });
+        enforceSize(blob.size, 'capture'); // the real size of the final image, before it is encoded or kept anywhere
+        const data = bytesToBase64(new Uint8Array(await blob.arrayBuffer()));
+        await discard(); // the image now lives only in memory until the user saves it
         return { mimeType: 'image/jpeg', data };
       } catch (e) {
+        await discard();
         if (e instanceof DocumentError) throw e;
         const text = `${e?.code ?? ''} ${e?.message ?? e}`;
         if (/0006|cancel/i.test(text)) return null; // user backed out of the camera

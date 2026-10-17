@@ -17,7 +17,7 @@ test('Settings no longer has a Manage Categories row; theme, App Lock and About 
   const sections = buildSettingsSections({ version: '1.0', build: '1', appLock: true });
   const rows = sections.flatMap((s) => s.rows);
   assert.ok(!rows.some((r) => r.id === 'manage-categories' || r.action === 'manage-categories'));
-  assert.deepEqual(sections.map((s) => s.id), ['appearance', 'security', 'about']);
+  assert.deepEqual(sections.map((s) => s.id), ['appearance', 'documents', 'security', 'about']);
   assert.ok(rows.some((r) => r.action === 'theme'));
   assert.ok(rows.some((r) => r.action === 'app-lock' && r.checked === true));
 });

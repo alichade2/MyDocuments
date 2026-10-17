@@ -104,7 +104,7 @@ test('rejects unsupported type, bad category, empty/oversize file, bad name', as
   await assert.rejects(svc.importFile(1, pdf('noext')), { code: 'UNSUPPORTED_TYPE' });
   await assert.rejects(svc.importFile(99, pdf()), { code: 'INVALID_CATEGORY' });
   await assert.rejects(svc.importFile(1, pdf('a.pdf', { data: '' })), { code: 'EMPTY_FILE' });
-  await assert.rejects(svc.importFile(1, pdf('a.pdf', { size: 26 * 1024 * 1024 })), { code: 'TOO_LARGE' });
+  await assert.rejects(svc.importFile(1, pdf('a.pdf', { size: 26 * 1024 * 1024 })), { code: 'FILE_TOO_LARGE_MAX' });
   await assert.rejects(svc.importFile(1, pdf(), '   '), { code: 'INVALID_NAME' });
   assert.equal(storage.files.size, 0);
 });

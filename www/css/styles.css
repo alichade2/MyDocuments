@@ -321,6 +321,11 @@ html[lang="hi"] .btn, html[lang="hi"] .tab-label, html[lang="hi"] .count { line-
 .lang-option:focus-within { outline: 3px solid var(--primary); outline-offset: 2px; }
 #lang-dialog { width: min(94vw, 420px); }
 #lang-dialog h3 { margin-bottom: 8px; }
+/* Document Size Limit: a dropdown row in Settings */
+.settings-field { list-style: none; }
+.settings-selectrow { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 64px; padding: 10px 12px 10px 16px; box-sizing: border-box; cursor: pointer; }
+.settings-select { flex: none; min-width: 96px; min-height: 44px; padding: 0 10px; font: inherit; font-weight: 600; color: var(--text); background: var(--card); border: 1.5px solid var(--outline); border-radius: 10px; color-scheme: inherit; }
+.settings-select:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
 /* App Lock: while <html data-locked> every screen is hidden (and made inert by app.js); only the lock screen shows. */
 .lock-screen { display: none; position: fixed; inset: 0; z-index: 1000; background: var(--bg); color: var(--text); align-items: center; justify-content: center; padding: 24px; box-sizing: border-box; }
 html[data-locked] .lock-screen { display: flex; }

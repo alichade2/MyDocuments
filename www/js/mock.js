@@ -1,7 +1,8 @@
 // Browser-preview only: in-memory repository with the same interface as the document service,
 // seeded from the same demo data as SQLite. Nothing persists; never used on a native platform.
 import { CATEGORIES, CUSTOM_ORDER_BASE, demoDocuments } from './seed.js';
-import { DEMO_MESSAGE, DocumentError, validateName, validateCategoryName, extensionOf, SUPPORTED_TYPES, IMAGE_TYPES } from './documents.js';
+import { DEMO_MESSAGE, DocumentError, validateName, validateCategoryName, extensionOf, enforceSize, SUPPORTED_TYPES, IMAGE_TYPES } from './documents.js';
+import { byteLengthOfBase64 } from './sizelimit.js';
 import { DEFAULT_CATEGORY_ICON, isChoosableIcon } from './icons.js';
 import { createThumbnail } from './images.js';
 import { matchesDocument, normalizeQuery } from './search.js';
@@ -17,6 +18,14 @@ function fakePhoto(n) {
   g.fillStyle = '#222'; g.font = '32px sans-serif'; g.fillText(`Sample capture #${n}`, 40, 170);
   for (let y = 230; y < 740; y += 40) g.fillRect(40, y, 400 + ((y * 7) % 120), 8);
   return c.toDataURL('image/jpeg', 0.85).split(',')[1];
+}
+
+/** Browser preview only: base64 data of the size in globalThis.__mydocsPreviewBytes (consumed once), or null. */
+function previewData() {
+  const n = Number(globalThis.__mydocsPreviewBytes);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  delete globalThis.__mydocsPreviewBytes;
+  return 'AAAA'.repeat(Math.ceil(n / 3)).slice(0, Math.ceil(n / 3) * 4); // decodes to ~n bytes
 }
 
 export function createMockService() {
@@ -72,20 +81,30 @@ export function createMockService() {
     },
     list: async (categoryId) => docs.filter((d) => categoryId == null || d.categoryId === categoryId).map((d) => ({ ...d })),
     // Browser preview: stand-ins for the native picker and camera (no real file access).
-    pickFile: async () => ({ name: `Sample_upload_${nextId}.pdf`, mimeType: 'application/pdf', size: 2048, data: 'QUJD' }),
+    // __mydocsPreviewBytes lets a tester make the next picked / captured file any size (the data is real, so it is judged like a real file).
+    pickFile: async () => {
+      const data = previewData() ?? 'QUJD';
+      const size = byteLengthOfBase64(data);
+      enforceSize(size, 'file');
+      return { name: `Sample_upload_${nextId}.pdf`, mimeType: 'application/pdf', size, data };
+    },
     capturePhoto: async () => {
-      const data = fakePhoto(++shots);
-      return { name: `Captured_preview_${shots}.jpg`, mimeType: 'image/jpeg', size: Math.floor(data.length * 0.75), data };
+      const data = previewData() ?? fakePhoto(++shots);
+      const size = byteLengthOfBase64(data);
+      enforceSize(size, 'capture');
+      return { name: `Captured_preview_${shots}.jpg`, mimeType: 'image/jpeg', size, data, source: 'camera' };
     },
     importFile: async (categoryId, file, displayName) => {
       const ext = extensionOf(file?.name);
       if (!SUPPORTED_TYPES[ext]) throw new DocumentError('UNSUPPORTED_TYPE', `Unsupported file type ".${ext || '?'}".`);
+      const actualSize = byteLengthOfBase64(file.data);
+      enforceSize(Math.max(actualSize, Number.isFinite(file.size) ? file.size : 0), file.source === 'camera' ? 'capture' : 'file'); // same final check as the real service
       const name = validateName(displayName);
       const ts = new Date().toISOString();
       const id = nextId++;
       const doc = {
         id, categoryId, name, originalFilename: file.name, fileType: ext, mimeType: SUPPORTED_TYPES[ext], filePath: `mock/${id}.${ext}`,
-        fileSize: file.size, createdAt: ts, updatedAt: ts, expiryDate: null, isDemo: false, missing: false, thumbPath: null,
+        fileSize: actualSize, createdAt: ts, updatedAt: ts, expiryDate: null, isDemo: false, missing: false, thumbPath: null,
       };
       full.set(id, `data:${SUPPORTED_TYPES[ext]};base64,${file.data}`);
       if (IMAGE_TYPES.has(ext)) {

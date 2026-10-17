@@ -205,7 +205,7 @@ test('the page: every data-i18n key exists in both tables and the English defaul
 
 test('app wiring: the language is applied before rendering and switching re-renders without a reload', () => {
   const app = read('www/js/app.js');
-  assert.match(app, /setLanguage\(loadLanguage\(\)\);[^\n]*\napplyStaticTranslations\(\);/);
+  assert.match(app, /setLanguage\(loadLanguage\(\)\);[^\n]*\n(?:[^\n]*\n)*?applyStaticTranslations\(\);/);
   assert.match(app, /function refreshLanguageUI\(\)/);
   assert.match(app, /saveLanguage\(id\)/);
   assert.doesNotMatch(app, /location\.reload|window\.location/);
