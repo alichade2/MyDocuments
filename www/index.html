@@ -99,6 +99,19 @@
     </main>
   </div>
 
+  <div id="categories-scroller" class="scroller" hidden>
+    <main>
+      <section id="categories-view" aria-label="Manage categories">
+        <button type="button" class="btn filled add-category-btn" id="cat-add" aria-label="Add Category">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2Z"/></svg>
+          <span>Add Category</span>
+        </button>
+        <ul id="cat-list" class="cat-list"></ul>
+        <p class="settings-hint">Built-in categories are permanent. Your own categories can be renamed, re-iconed or deleted.</p>
+      </section>
+    </main>
+  </div>
+
   <nav class="tab-bar" aria-label="Main sections">
     <button type="button" class="tab active" id="tab-category" data-tab="category" aria-current="page">
       <span class="tab-icon"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M3 3h8v8H3V3Zm10 0h8v8h-8V3ZM3 13h8v8H3v-8Zm10 0h8v8h-8v-8Z"/></svg></span>
@@ -148,6 +161,36 @@
     <h3 id="th-title">Choose theme</h3>
     <div id="th-options" role="radiogroup" aria-labelledby="th-title"></div>
     <div class="dialog-actions"><button type="button" class="btn text" id="th-close">Close</button></div>
+  </dialog>
+
+  <dialog id="cat-dialog" aria-labelledby="cd-title">
+    <form id="cat-form" novalidate>
+      <h3 id="cd-title">Add Category</h3>
+      <div class="cd-preview" aria-hidden="true"><span class="category-icon" id="cd-preview-icon"></span><span class="cd-preview-name" id="cd-preview-name"></span></div>
+      <label for="cd-name">Category Name</label>
+      <input id="cd-name" type="text" maxlength="40" placeholder="Enter category name" autocomplete="off" aria-describedby="cd-error">
+      <p id="cd-error" class="field-error" role="alert" hidden></p>
+      <p class="cd-heading" id="cd-icons-label">Choose Icon</p>
+      <div id="cd-icons" class="icon-grid" role="radiogroup" aria-labelledby="cd-icons-label"></div>
+      <div class="dialog-actions">
+        <button type="button" class="btn text" id="cd-cancel">Cancel</button>
+        <button type="submit" class="btn filled" id="cd-save">Save Category</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="cdel-dialog" aria-labelledby="cdel-title">
+    <h3 id="cdel-title">Delete category?</h3>
+    <p id="cdel-text" class="cdel-text"></p>
+    <div id="cdel-move" hidden>
+      <label for="cdel-target">Move documents to</label>
+      <select id="cdel-target"></select>
+    </div>
+    <p id="cdel-error" class="field-error" role="alert" hidden></p>
+    <div class="dialog-actions">
+      <button type="button" class="btn text" id="cdel-cancel">Cancel</button>
+      <button type="button" class="btn danger-fill" id="cdel-confirm">Delete</button>
+    </div>
   </dialog>
 
   <div id="drawer-scrim" class="drawer-scrim" hidden></div>

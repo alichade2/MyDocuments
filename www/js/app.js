@@ -9,36 +9,11 @@ import { createSelection } from './selection.js';
 import { createDrawer } from './nav.js';
 import { MENU_ITEMS, buildSettingsSections } from './menu.js';
 import { THEME_OPTIONS, loadTheme, saveTheme, applyTheme } from './theme.js';
+import { iconPath, CATEGORY_ICON_CHOICES, DEFAULT_CATEGORY_ICON } from './icons.js';
 
 const $ = (id) => document.getElementById(id);
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
-// 24x24 icon paths (fill-rule evenodd), keyed by categories.icon.
-const ICONS = {
-  person: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0 2c-3.3 0-8 1.7-8 5v1h16v-1c0-3.3-4.7-5-8-5Z',
-  school: 'M12 3 1 9l11 6 9-4.9V17h2V9L12 3Zm-6 10.2v4L12 21l6-3.8v-4L12 16l-6-2.8Z',
-  badge: 'M3 5h18a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Zm5 3a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm-3 8h6v-.5c0-1-2-1.5-3-1.5s-3 .5-3 1.5V16Zm9-6v1.5h6V10h-6Zm0 3v1.5h4V13h-4Z',
-  work: 'M10 3h4a2 2 0 0 1 2 2v2h4a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h4V5a2 2 0 0 1 2-2Zm0 2v2h4V5h-4Z',
-  wallet: 'M3 6a2 2 0 0 1 2-2h14v3H5v1h16v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6Zm14 8a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z',
-  health: 'M10 3h4v7h7v4h-7v7h-4v-7H3v-4h7V3Z',
-  shield: 'M12 2 4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5l-8-3Z',
-  home: 'M12 3 2 12h3v8h5v-5h4v5h5v-8h3L12 3Z',
-  car: 'M5 11l1.5-4.5A2 2 0 0 1 8.4 5h7.2a2 2 0 0 1 1.9 1.5L19 11a2 2 0 0 1 2 2v5h-2v2h-3v-2H8v2H5v-2H3v-5a2 2 0 0 1 2-2Zm2.5 2a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm9 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3ZM7.6 7 6.9 9.5h10.2L16.4 7H7.6Z',
-  receipt: 'M5 2h14v20l-3-2-2 2-2-2-2 2-2-2-3 2V2Zm3 5v2h8V7H8Zm0 4v2h8v-2H8Z',
-  // balance scales
-  gavel: 'M11 2h2v2.1l5 .9v1.6l2.9 6.6c0 1.6-1.3 2.8-2.9 2.8s-2.9-1.2-2.9-2.8L17 7l-4-.7V19h4v2H7v-2h4V6.3L7 7l2.9 6.6C9.9 15.2 8.6 16.4 7 16.4s-2.9-1.2-2.9-2.8L7 7V5.1l4-.9V2ZM7 9.6 5.6 13h2.8L7 9.6Zm10 0L15.6 13h2.8L17 9.6Z',
-  plane: 'M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5Z',
-  folder: 'M4 4h6l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z',
-  image: 'M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2ZM8.5 13.5l2.5 3 3.5-4.5 4.5 6H5l3.5-4.5Z',
-  edit: 'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25ZM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83Z',
-  share: 'M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 1 0-3-3c0 .24.04.47.09.7L8.04 9.81A2.99 2.99 0 0 0 6 9a3 3 0 1 0 0 6c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65a2.92 2.92 0 1 0 2.92-2.92Z',
-  delete: 'M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12ZM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4Z',
-  settings: 'M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58ZM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6Z',
-  sun: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8ZM11 1h2v3h-2V1Zm0 19h2v3h-2v-3ZM1 11h3v2H1v-2Zm19 0h3v2h-3v-2ZM4.22 5.64l1.42-1.42 2.12 2.12-1.42 1.42-2.12-2.12Zm12.02 12.02 1.42-1.42 2.12 2.12-1.42 1.42-2.12-2.12ZM5.64 19.78l-1.42-1.42 2.12-2.12 1.42 1.42-2.12 2.12ZM17.66 7.76l-1.42-1.42 2.12-2.12 1.42 1.42-2.12 2.12Z',
-  moon: 'M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1Z',
-  theme: 'M12 22c5.52 0 10-4.48 10-10S17.52 2 12 2 2 6.48 2 12s4.48 10 10 10Zm0-2V4a8 8 0 1 1 0 16Z',
-  chevron: 'M9 5.6 15.4 12 9 18.4 10.4 20l8-8-8-8L9 5.6Z',
-};
 const FILE_TYPES = {
   pdf: { cls: 't-pdf', label: 'PDF' },
   jpg: { cls: 't-img', icon: 'image' }, jpeg: { cls: 't-img', icon: 'image' }, png: { cls: 't-img', icon: 'image' },
@@ -67,7 +42,7 @@ function svgIcon(name, cls = '') {
   if (cls) svg.setAttribute('class', cls);
   const p = document.createElementNS(SVG_NS, 'path');
   p.setAttribute('fill', 'currentColor'); p.setAttribute('fill-rule', 'evenodd');
-  p.setAttribute('d', ICONS[name] ?? ICONS.folder);
+  p.setAttribute('d', iconPath(name));
   svg.append(p);
   return svg;
 }
@@ -117,9 +92,12 @@ function updateCardCount(entry, n) {
 
 async function buildDashboard() {
   const categories = await service.listCategories();
+  const ids = new Set(categories.map((c) => c.id));
+  for (const id of [...cards.keys()]) if (!ids.has(id)) { cards.delete(id); view.docs.delete(id); } // deleted categories
   const frag = document.createDocumentFragment();
   for (const cat of categories) {
-    const entry = cards.get(cat.id) ?? buildCard(cat);
+    const old = cards.get(cat.id);
+    const entry = old && old.cat.name === cat.name && old.cat.icon === cat.icon ? old : buildCard(cat); // new or edited -> fresh card
     const docs = await service.list(cat.id);
     view.docs.set(cat.id, docs);
     updateCardCount(entry, docs.length);
@@ -426,15 +404,19 @@ function handleDocAction(e) {
 
 function wireEvents() {
   wireSearch();
-  $('page-back').addEventListener('click', closeSettings);
-  $('settings-list').addEventListener('click', (e) => { if (e.target.closest('[data-action="theme"]')) openThemeDialog(); });
+  $('page-back').addEventListener('click', pageBack);
+  $('settings-list').addEventListener('click', (e) => {
+    if (e.target.closest('[data-action="theme"]')) openThemeDialog();
+    else if (e.target.closest('[data-action="manage-categories"]')) openManageCategories();
+  });
+  wireCategories();
   $('th-options').addEventListener('change', (e) => {
     if (e.target.name !== 'theme') return;
     setTheme(e.target.value);
     setTimeout(() => $('theme-dialog').close(), 180); // brief moment to see the new selection
   });
   $('th-close').addEventListener('click', () => $('theme-dialog').close());
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && nav.page && !drawer.isOpen() && !document.querySelector('dialog[open]')) closeSettings(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && nav.page && !drawer.isOpen() && !document.querySelector('dialog[open]')) pageBack(); });
   wireAllDocuments();
   // One delegated listener per container; nothing is re-registered when views change.
   $('categories').addEventListener('click', (e) => {
@@ -777,10 +759,11 @@ const drawer = createDrawer({
 
 let settingsInfo = {};
 let theme = loadTheme();
+let customCategories = 0;
 
 function renderSettings(info = settingsInfo) {
   settingsInfo = info;
-  const sections = buildSettingsSections({ ...info, theme });
+  const sections = buildSettingsSections({ ...info, theme, customCategories });
   $('settings-list').replaceChildren(...sections.map((sec) => el('section', { class: 'settings-section', 'aria-label': sec.title },
     el('h2', {}, sec.title),
     el('ul', { class: 'settings-rows' }, ...sec.rows.map((r) => {
@@ -793,6 +776,176 @@ function renderSettings(info = settingsInfo) {
       }
       return el('li', { class: 'settings-row' }, el('span', { class: 'settings-label' }, r.label), r.value ? el('span', { class: 'settings-value' }, r.value) : document.createTextNode(''));
     })))));
+}
+
+/* ---------- Manage Categories ---------- */
+
+const catUi = { editing: null, icon: DEFAULT_CATEGORY_ICON, saving: false, deleting: null };
+
+async function refreshManageList() {
+  const cats = await service.listCategoriesWithCounts();
+  customCategories = cats.filter((c) => c.isCustom).length;
+  $('cat-list').replaceChildren(...cats.map((c) => {
+    const row = el('li', { class: 'cat-row', 'data-category-id': String(c.id) },
+      el('span', { class: 'category-icon' }, svgIcon(c.icon)),
+      el('span', { class: 'cat-row-text' },
+        el('span', { class: 'cat-row-name' }, c.name),
+        el('span', { class: 'cat-row-sub' }, `${plural(c.docCount)} · ${c.isCustom ? 'Custom' : 'Built-in'}`)));
+    if (c.isCustom) {
+      const edit = el('button', { type: 'button', class: 'icon-btn', 'data-cat-action': 'edit', 'aria-label': `Edit ${c.name}`, title: 'Edit' });
+      edit.append(svgIcon('edit'));
+      const del = el('button', { type: 'button', class: 'icon-btn danger', 'data-cat-action': 'delete', 'aria-label': `Delete ${c.name}`, title: 'Delete' });
+      del.append(svgIcon('delete'));
+      row.append(edit, del);
+    }
+    return row;
+  }));
+  catUi.cache = cats;
+}
+
+/** Everything that shows categories re-reads them from the repository (single source of truth). */
+async function categoriesChanged() {
+  tabs.allDirty = true; // All Documents headings / counts
+  await buildDashboard();
+  await refreshManageList();
+  renderSettings();
+}
+
+function setCatError(msg) {
+  $('cd-error').textContent = msg;
+  $('cd-error').hidden = !msg;
+  $('cd-name').setAttribute('aria-invalid', String(Boolean(msg)));
+}
+
+function renderIconGrid() {
+  $('cd-icons').replaceChildren(...CATEGORY_ICON_CHOICES.map((c) => {
+    const b = el('button', { type: 'button', class: 'icon-choice', role: 'radio', 'aria-checked': String(c.key === catUi.icon), 'aria-label': c.label, title: c.label, 'data-icon': c.key });
+    b.append(svgIcon(c.key));
+    return b;
+  }));
+  $('cd-preview-icon').replaceChildren(svgIcon(catUi.icon));
+}
+
+function updateCatPreview() {
+  const name = $('cd-name').value.replace(/\s+/g, ' ').trim();
+  $('cd-preview-name').textContent = name || 'Category name';
+}
+
+function openCategoryDialog(cat = null) {
+  if ($('cat-dialog').open) return;
+  catUi.editing = cat;
+  catUi.icon = cat?.icon ?? DEFAULT_CATEGORY_ICON; // folder unless editing
+  $('cd-title').textContent = cat ? 'Edit Category' : 'Add Category';
+  $('cd-save').textContent = 'Save Category';
+  $('cd-name').value = cat?.name ?? '';
+  setCatError('');
+  renderIconGrid();
+  updateCatPreview();
+  $('cat-dialog').showModal();
+  $('cd-name').focus({ preventScroll: true });
+}
+
+function closeCategoryDialog() {
+  if (catUi.saving) return;
+  if ($('cat-dialog').open) $('cat-dialog').close();
+  catUi.editing = null; // unsaved changes are discarded
+}
+
+async function submitCategory(e) {
+  e.preventDefault();
+  if (catUi.saving) return; // no repeated submissions
+  catUi.saving = true;
+  $('cd-save').disabled = true; $('cd-cancel').disabled = true;
+  $('cd-save').textContent = 'Saving…';
+  try {
+    const wasEdit = Boolean(catUi.editing);
+    const payload = { name: $('cd-name').value, icon: catUi.icon };
+    if (wasEdit) await service.updateCategory(catUi.editing.id, payload); else await service.createCategory(payload);
+    catUi.saving = false;
+    closeCategoryDialog();
+    await categoriesChanged();
+    showMessage(wasEdit ? 'Category updated' : 'Category created successfully');
+  } catch (err) {
+    setCatError(err?.code && String(err.code).match(/CATEGORY|ICON/) ? err.message : 'Could not save the category. Please try again.');
+    if (!err?.code) console.error('MyDocs category error:', err?.name || 'error');
+    $('cd-name').focus({ preventScroll: true });
+  } finally {
+    catUi.saving = false;
+    $('cd-save').disabled = false; $('cd-cancel').disabled = false;
+    $('cd-save').textContent = 'Save Category';
+  }
+}
+
+function openDeleteCategory(cat) {
+  catUi.deleting = cat;
+  $('cdel-title').textContent = `Delete "${cat.name}"?`;
+  $('cdel-error').hidden = true;
+  const others = (catUi.cache ?? []).filter((c) => c.id !== cat.id);
+  if (cat.docCount > 0) {
+    $('cdel-text').textContent = `This category contains ${plural(cat.docCount)}. They will not be deleted: choose a category to move them to. Document files are kept.`;
+    $('cdel-target').replaceChildren(...others.map((c) => el('option', { value: String(c.id) }, c.name)));
+    $('cdel-move').hidden = false;
+    $('cdel-confirm').textContent = 'Move and delete';
+  } else {
+    $('cdel-text').textContent = 'This category is empty. Deleting it cannot be undone.';
+    $('cdel-move').hidden = true;
+    $('cdel-confirm').textContent = 'Delete';
+  }
+  $('cdel-dialog').showModal();
+  $('cdel-cancel').focus({ preventScroll: true });
+}
+
+async function confirmDeleteCategory() {
+  const cat = catUi.deleting;
+  if (!cat || catUi.saving) return;
+  catUi.saving = true;
+  $('cdel-confirm').disabled = true;
+  try {
+    await service.deleteCategory(cat.id, cat.docCount > 0 ? { moveTo: Number($('cdel-target').value) } : {});
+    $('cdel-dialog').close();
+    catUi.deleting = null;
+    await categoriesChanged();
+    showMessage(cat.docCount > 0 ? `Category deleted; ${plural(cat.docCount)} moved` : 'Category deleted');
+  } catch (err) {
+    $('cdel-error').textContent = err?.message || 'Could not delete the category.';
+    $('cdel-error').hidden = false;
+  } finally {
+    catUi.saving = false;
+    $('cdel-confirm').disabled = false;
+  }
+}
+
+function wireCategories() {
+  $('cat-add').addEventListener('click', () => openCategoryDialog());
+  $('cd-cancel').addEventListener('click', closeCategoryDialog);
+  $('cat-dialog').addEventListener('cancel', (e) => { if (catUi.saving) e.preventDefault(); else catUi.editing = null; });
+  $('cat-form').addEventListener('submit', submitCategory);
+  $('cd-name').addEventListener('input', () => { setCatError(''); updateCatPreview(); });
+  $('cd-icons').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-icon]');
+    if (!b) return;
+    catUi.icon = b.dataset.icon;
+    for (const x of $('cd-icons').children) x.setAttribute('aria-checked', String(x === b));
+    $('cd-preview-icon').replaceChildren(svgIcon(catUi.icon));
+  });
+  $('cd-icons').addEventListener('keydown', (e) => { // arrow keys move the selection like a radio group
+    const items = [...$('cd-icons').children];
+    const i = items.indexOf(document.activeElement);
+    const step = { ArrowRight: 1, ArrowDown: 5, ArrowLeft: -1, ArrowUp: -5 }[e.key];
+    if (i < 0 || !step) return;
+    e.preventDefault();
+    const next = items[Math.max(0, Math.min(items.length - 1, i + step))];
+    next.focus(); next.click();
+  });
+  $('cat-list').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-cat-action]');
+    const id = Number(btn?.closest('[data-category-id]')?.dataset.categoryId);
+    const cat = (catUi.cache ?? []).find((c) => c.id === id);
+    if (!btn || !cat) return;
+    if (btn.dataset.catAction === 'edit') openCategoryDialog(cat); else openDeleteCategory(cat);
+  });
+  $('cdel-cancel').addEventListener('click', () => { if (!catUi.saving) $('cdel-dialog').close(); });
+  $('cdel-confirm').addEventListener('click', confirmDeleteCategory);
 }
 
 /** Applies and stores a theme right away; every screen updates through the CSS tokens (no restart, no re-render). */
@@ -838,8 +991,33 @@ function openSettings() {
   $('page-back').focus({ preventScroll: true });
 }
 
+/** Back arrow / Android Back on a settings sub-page: Manage Categories -> Settings -> previous screen. */
+function pageBack() {
+  if (nav.page === 'categories') {
+    nav.page = 'settings';
+    $('categories-scroller').hidden = true;
+    $('settings-scroller').hidden = false;
+    $('app-title').textContent = 'Settings';
+    renderSettings();
+    return;
+  }
+  closeSettings();
+}
+
+async function openManageCategories() {
+  if (nav.page !== 'settings') return;
+  nav.page = 'categories';
+  $('settings-scroller').hidden = true;
+  $('categories-scroller').hidden = false;
+  $('categories-scroller').scrollTop = 0;
+  $('app-title').textContent = 'Manage Categories';
+  await refreshManageList();
+  $('cat-add').focus({ preventScroll: true });
+}
+
 function closeSettings() {
   if (nav.page === null) return;
+  $('categories-scroller').hidden = true;
   nav.page = null;
   document.body.classList.remove('page-settings');
   $('page-back').hidden = true;
@@ -859,12 +1037,14 @@ function wireBackButton() {
   appPlugin.addListener('backButton', () => {
     if ($('progress-dialog').open) return; // ZIP being prepared
     if (drawer.isOpen()) { drawer.close(); return; }
+    if ($('cat-dialog').open) { closeCategoryDialog(); return; }
+    if ($('cdel-dialog').open) { if (!catUi.saving) $('cdel-dialog').close(); return; }
     if ($('theme-dialog').open) { $('theme-dialog').close(); return; }
     if ($('viewer-dialog').open) { $('vw-close').click(); return; }
     if ($('name-dialog').open) { if (!saving) closeNameDialog(); return; }
     if ($('preview-dialog').open) { releasePending(); $('preview-dialog').close(); return; }
     if (search.active) { closeSearch(); return; }
-    if (nav.page) { closeSettings(); return; }
+    if (nav.page) { pageBack(); return; }
     if (tabs.current === 'all') { if (selection.size) { selection.clear(); updateSelectionUI(); } else switchTab('category'); return; }
     if (view.categoryId != null) { goBack(); return; }
     appPlugin.exitApp();
@@ -896,6 +1076,8 @@ async function init() {
   renderSettings();
   globalThis.Capacitor?.Plugins?.App?.getInfo?.().then((info) => renderSettings({ version: info.version, build: info.build })).catch(() => {});
   await buildDashboard();
+  customCategories = (await service.listCategories()).filter((c) => c.is_custom === 1).length;
+  renderSettings();
 }
 
 init().catch((err) => { console.error('MyDocs init failed:', err?.message); showMessage(`Startup failed: ${err?.message || err}`); });

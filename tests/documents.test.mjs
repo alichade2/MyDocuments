@@ -397,13 +397,13 @@ test('imageSrc rejects demo, non-image and missing documents', async () => {
   await assert.rejects(svc.imageSrc(img.id), { code: 'FILE_MISSING' });
 });
 
-test('v2 database upgrades to v3 with thumb_path and keeps data', async () => {
+test('v2 database upgrades to the current schema (thumb_path, is_custom) and keeps data', async () => {
   const driver = nodeDriver();
   await createDatabase(driver).init();
-  driver.sqlite.exec('ALTER TABLE documents DROP COLUMN thumb_path; PRAGMA user_version = 2;');
+  driver.sqlite.exec('DROP INDEX idx_categories_name_nocase; ALTER TABLE categories DROP COLUMN is_custom; ALTER TABLE documents DROP COLUMN thumb_path; PRAGMA user_version = 2;');
   const db = createDatabase(driver);
   await db.init();
-  assert.equal(driver.sqlite.prepare('PRAGMA user_version').get().user_version, 3);
+  assert.equal(driver.sqlite.prepare('PRAGMA user_version').get().user_version, SCHEMA_VERSION);
   assert.equal(driver.sqlite.prepare('SELECT COUNT(*) c FROM documents').get().c, 58);
   assert.ok(driver.sqlite.prepare('PRAGMA table_info(documents)').all().some((c) => c.name === 'thumb_path'));
 });
@@ -831,5 +831,156 @@ test('theme comes only from the user setting: no prefers-color-scheme override, 
   const overridden = tokens(':root[data-theme="dark"] {');
   for (const key of Object.keys(light)) {
     if (!['radius'].includes(key)) assert.ok(key in overridden, `dark theme defines --${key}`);
+  }
+});
+
+/* ---------- custom categories + icon registry ---------- */
+import { ICON_PATHS, CATEGORY_ICON_CHOICES, DEFAULT_CATEGORY_ICON, isChoosableIcon, iconPath } from '../www/js/icons.js';
+import { validateCategoryName, MAX_CATEGORY_NAME_LENGTH } from '../www/js/documents.js';
+
+test('icon registry: stable keys, every choice and every built-in category icon resolves, unknown keys fall back safely', () => {
+  assert.equal(CATEGORY_ICON_CHOICES.length, 25);
+  assert.equal(new Set(CATEGORY_ICON_CHOICES.map((c) => c.key)).size, 25);
+  assert.equal(CATEGORY_ICON_CHOICES[0].key, DEFAULT_CATEGORY_ICON); // folder is the default and the first choice
+  for (const c of CATEGORY_ICON_CHOICES) {
+    assert.ok(c.label, c.key);
+    assert.ok(Object.hasOwn(ICON_PATHS, c.key) && /^M[\d.\sMmLlHhVvCcSsQqTtAaZz,-]+$/.test(ICON_PATHS[c.key]), `${c.key} has a valid path`);
+  }
+  for (const cat of CATEGORIES) assert.ok(Object.hasOwn(ICON_PATHS, cat.icon), `built-in icon ${cat.icon}`);
+  assert.equal(iconPath('does_not_exist'), ICON_PATHS.folder);
+  assert.equal(iconPath(undefined), ICON_PATHS.folder);
+  assert.equal(iconPath('__proto__'), ICON_PATHS.folder);
+  assert.ok(isChoosableIcon('pets') && !isChoosableIcon('badge') && !isChoosableIcon('<script>'));
+});
+
+test('category name rules: trimmed, whitespace collapsed, empty and over-long rejected', () => {
+  assert.equal(validateCategoryName('  Pet   Records  '), 'Pet Records');
+  for (const bad of ['', '   ', null, undefined]) assert.throws(() => validateCategoryName(bad), { code: 'INVALID_CATEGORY_NAME' });
+  assert.throws(() => validateCategoryName('x'.repeat(MAX_CATEGORY_NAME_LENGTH + 1)), { code: 'INVALID_CATEGORY_NAME' });
+  assert.equal(validateCategoryName('x'.repeat(MAX_CATEGORY_NAME_LENGTH)).length, MAX_CATEGORY_NAME_LENGTH);
+});
+
+test('createCategory: unique id/slug, default icon, custom flag, ordered after built-ins, trimmed name', async () => {
+  const { svc } = await setup({ now: () => '2026-10-17T10:00:00.000Z' });
+  const a = await svc.createCategory({ name: '  Pet   Records ', icon: 'pets' });
+  const b = await svc.createCategory({ name: 'Hobbies' }); // no icon -> folder
+  assert.deepEqual([a.name, a.icon, a.isCustom, a.docCount, a.createdAt], ['Pet Records', 'pets', true, 0, '2026-10-17T10:00:00.000Z']);
+  assert.equal(b.icon, 'folder');
+  assert.ok(a.id > 12 && b.id > a.id && a.slug !== b.slug && a.slug.startsWith('custom-'));
+  const all = await svc.listCategories();
+  assert.equal(all.length, 14);
+  assert.deepEqual(all.slice(-2).map((c) => c.name), ['Pet Records', 'Hobbies']); // appended after the 12 built-in ones
+  assert.ok(all.slice(0, 12).every((c) => c.is_custom === 0) && all.slice(12).every((c) => c.is_custom === 1));
+});
+
+test('createCategory rejects empty, duplicate (case-insensitive, also vs built-ins), bad icons and writes nothing', async () => {
+  const { svc } = await setup();
+  await svc.createCategory({ name: 'Pets' });
+  for (const [input, code] of [
+    [{ name: '' }, 'INVALID_CATEGORY_NAME'], [{ name: '   ' }, 'INVALID_CATEGORY_NAME'],
+    [{ name: 'pets' }, 'DUPLICATE_CATEGORY'], [{ name: '  PETS ' }, 'DUPLICATE_CATEGORY'],
+    [{ name: 'identity documents' }, 'DUPLICATE_CATEGORY'], [{ name: 'Travel Documents' }, 'DUPLICATE_CATEGORY'],
+    [{ name: 'Fine', icon: 'not-an-icon' }, 'INVALID_ICON'], [{ name: 'Fine', icon: 'badge' }, 'INVALID_ICON'],
+  ]) await assert.rejects(svc.createCategory(input), { code }, JSON.stringify(input));
+  assert.equal((await svc.listCategories()).length, 13);
+});
+
+test('custom categories persist across a restart and work with documents, search, All Documents and ZIP', async () => {
+  const driver = nodeDriver();
+  const first = createDatabase(driver);
+  await first.init();
+  const storage = memStorage();
+  const svc1 = createDocumentService({ db: first, storage });
+  const cat = await svc1.createCategory({ name: 'Pet Records', icon: 'pets' });
+  const empty = await svc1.createCategory({ name: 'Empty One' });
+  const doc = await svc1.importFile(cat.id, pdf('vet.pdf'), 'Vet Invoice');
+  const second = createDatabase(driver); // "restart": a new database object on the same file
+  await second.init();
+  const svc2 = createDocumentService({ db: second, storage });
+  const cats = await svc2.listCategoriesWithCounts();
+  assert.equal(cats.length, 14);
+  assert.deepEqual(cats.filter((c) => c.isCustom).map((c) => [c.name, c.icon, c.docCount]), [['Pet Records', 'pets', 1], ['Empty One', 'folder', 0]]);
+  assert.equal((await svc2.list(cat.id))[0].name, 'Vet Invoice');
+  assert.deepEqual((await svc2.search('vet')).map((d) => [d.name, d.categoryName]), [['Vet Invoice', 'Pet Records']]);
+  const all = await svc2.listAll();
+  assert.ok(all.some((d) => d.id === doc.id && d.categoryName === 'Pet Records'));
+  assert.ok(!all.some((d) => d.categoryId === empty.id), 'empty categories add no rows to All Documents');
+  assert.equal(all.length, 59);
+  const shared = [];
+  const svc3 = createDocumentService({ db: second, storage, sharer: { share: async (a) => { shared.push(a); return true; } } });
+  storage.files.set(doc.filePath, b64('PDFDATA'));
+  await svc3.shareSelectedAsZip([doc.id]);
+  assert.equal(readZip(zipBytes(storage.shareFile.chunks))[0].name, 'Pet Records/Vet Invoice.pdf'); // custom name is the ZIP folder
+});
+
+test('updateCategory renames / re-icons a custom category without touching its documents; built-ins are locked', async () => {
+  const { svc } = await setup();
+  const cat = await svc.createCategory({ name: 'Old Name', icon: 'cloud' });
+  const doc = await svc.importFile(cat.id, pdf(), 'Keep Me');
+  const updated = await svc.updateCategory(cat.id, { name: '  New Name ', icon: 'savings' });
+  assert.deepEqual([updated.id, updated.name, updated.icon, updated.docCount], [cat.id, 'New Name', 'savings', 1]);
+  assert.equal((await svc.get(doc.id)).categoryId, cat.id);
+  assert.equal((await svc.search('keep'))[0].categoryName, 'New Name');
+  await svc.updateCategory(cat.id, { name: 'NEW NAME' }); // same category, different case: allowed
+  assert.equal((await svc.updateCategory(cat.id, { icon: 'pets' })).name, 'NEW NAME');
+  await svc.createCategory({ name: 'Other' });
+  await assert.rejects(svc.updateCategory(cat.id, { name: 'other' }), { code: 'DUPLICATE_CATEGORY' });
+  await assert.rejects(svc.updateCategory(cat.id, { name: ' ' }), { code: 'INVALID_CATEGORY_NAME' });
+  await assert.rejects(svc.updateCategory(cat.id, { icon: 'nope' }), { code: 'INVALID_ICON' });
+  await assert.rejects(svc.updateCategory(1, { name: 'Hacked' }), { code: 'CATEGORY_LOCKED' });
+  await assert.rejects(svc.updateCategory(99999, { name: 'x' }), { code: 'INVALID_CATEGORY' });
+});
+
+test('deleteCategory: empty ones delete; non-empty need a move target and keep every document file; built-ins are permanent', async () => {
+  const { svc, storage } = await setup();
+  const empty = await svc.createCategory({ name: 'Temp' });
+  assert.deepEqual(await svc.deleteCategory(empty.id), { moved: 0 });
+  assert.equal((await svc.listCategories()).length, 12);
+
+  const cat = await svc.createCategory({ name: 'Moveable' });
+  const d1 = await svc.importFile(cat.id, pdf('a.pdf'), 'One');
+  const d2 = await svc.importFile(cat.id, pdf('b.pdf'), 'Two');
+  const files = [...storage.files.keys()].sort();
+  const err = await svc.deleteCategory(cat.id).catch((e) => e);
+  assert.equal(err.code, 'CATEGORY_NOT_EMPTY');
+  assert.equal(err.count, 2);
+  await assert.rejects(svc.deleteCategory(cat.id, { moveTo: cat.id }), { code: 'INVALID_CATEGORY' });
+  await assert.rejects(svc.deleteCategory(cat.id, { moveTo: 99999 }), { code: 'INVALID_CATEGORY' });
+  assert.equal((await svc.listCategories()).length, 13); // failed attempts deleted nothing
+  assert.deepEqual(await svc.deleteCategory(cat.id, { moveTo: 2 }), { moved: 2 });
+  assert.deepEqual([(await svc.get(d1.id)).categoryId, (await svc.get(d2.id)).categoryId], [2, 2]);
+  assert.deepEqual([...storage.files.keys()].sort(), files, 'no document file was deleted');
+  assert.equal((await svc.listCategories()).length, 12);
+  await assert.rejects(svc.deleteCategory(3), { code: 'CATEGORY_LOCKED' });
+});
+
+test('v3 database upgrades to v4: is_custom added, data kept, names unique ignoring case', async () => {
+  const driver = nodeDriver();
+  await createDatabase(driver).init();
+  driver.sqlite.exec('DROP INDEX idx_categories_name_nocase; ALTER TABLE categories DROP COLUMN is_custom; PRAGMA user_version = 3;');
+  const db = createDatabase(driver);
+  await db.init();
+  const svc = createDocumentService({ db, storage: memStorage() });
+  assert.equal(driver.sqlite.prepare('PRAGMA user_version').get().user_version, 4);
+  const cats = await svc.listCategories();
+  assert.equal(cats.length, 12);
+  assert.ok(cats.every((c) => c.is_custom === 0));
+  assert.equal((await svc.list()).length, 58);
+  await assert.rejects(svc.createCategory({ name: 'IDENTITY documents' }), { code: 'DUPLICATE_CATEGORY' });
+  assert.throws(() => driver.sqlite.exec("INSERT INTO categories (slug,name,icon,sort_order) VALUES ('x','travel documents','folder',99)"), /UNIQUE/);
+});
+
+test('in-memory preview category behaviour matches the SQLite service', async () => {
+  const { svc } = await setup();
+  const mock = createMockService();
+  for (const s of [svc, mock]) {
+    const c = await s.createCategory({ name: ' Pet  Records ', icon: 'pets' });
+    assert.deepEqual([c.name, c.icon, c.isCustom], ['Pet Records', 'pets', true]);
+    await assert.rejects(s.createCategory({ name: 'pet records' }), { code: 'DUPLICATE_CATEGORY' });
+    await assert.rejects(s.createCategory({ name: '' }), { code: 'INVALID_CATEGORY_NAME' });
+    await assert.rejects(s.updateCategory(1, { name: 'x' }), { code: 'CATEGORY_LOCKED' });
+    assert.equal((await s.updateCategory(c.id, { name: 'Pets', icon: 'cloud' })).icon, 'cloud');
+    assert.deepEqual(await s.deleteCategory(c.id), { moved: 0 });
+    assert.equal((await s.listCategories()).length, 12);
   }
 });

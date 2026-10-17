@@ -1,7 +1,8 @@
 // Browser-preview only: in-memory repository with the same interface as the document service,
 // seeded from the same demo data as SQLite. Nothing persists; never used on a native platform.
 import { CATEGORIES, demoDocuments } from './seed.js';
-import { DEMO_MESSAGE, DocumentError, validateName, extensionOf, SUPPORTED_TYPES, IMAGE_TYPES } from './documents.js';
+import { DEMO_MESSAGE, DocumentError, validateName, validateCategoryName, extensionOf, SUPPORTED_TYPES, IMAGE_TYPES } from './documents.js';
+import { DEFAULT_CATEGORY_ICON, isChoosableIcon } from './icons.js';
 import { createThumbnail } from './images.js';
 import { matchesDocument, normalizeQuery } from './search.js';
 import { writeZip, uniqueEntryPaths, base64ToBytes } from './zip.js';
@@ -19,7 +20,7 @@ function fakePhoto(n) {
 }
 
 export function createMockService() {
-  const categories = CATEGORIES.map((c, i) => ({ id: i + 1, slug: c.slug, name: c.name, icon: c.icon, sort_order: i + 1 }));
+  const categories = CATEGORIES.map((c, i) => ({ id: i + 1, slug: c.slug, name: c.name, icon: c.icon, sort_order: i + 1, is_custom: 0, created_at: '2026-01-01T00:00:00.000Z' }));
   const idBySlug = new Map(categories.map((c) => [c.slug, c.id]));
   let nextId = 1;
   let shots = 0;
@@ -29,9 +30,46 @@ export function createMockService() {
     id: nextId++, categoryId: idBySlug.get(d.categorySlug), name: d.name, originalFilename: d.filename, fileType: 'pdf',
     mimeType: 'application/pdf', filePath: null, fileSize: null, createdAt: d.ts, updatedAt: d.ts, expiryDate: null, isDemo: true, missing: false, thumbPath: null,
   }));
+  let nextCategoryId = categories.length + 1;
+  const categoryOf = (id) => { const c = categories.find((x) => x.id === id); if (!c) throw new DocumentError('INVALID_CATEGORY', 'Unknown category.'); return c; };
+  const dupName = (name, exceptId) => categories.some((c) => c.id !== exceptId && c.name.toLowerCase() === name.toLowerCase());
+  const withCount = (c) => ({ id: c.id, slug: c.slug, name: c.name, icon: c.icon, sortOrder: c.sort_order, isCustom: c.is_custom === 1, createdAt: c.created_at, docCount: docs.filter((d) => d.categoryId === c.id).length });
   const mock = { lastZip: null };
   return Object.assign(mock, {
-    listCategories: async () => categories,
+    listCategories: async () => [...categories].sort((a, b) => a.sort_order - b.sort_order || a.id - b.id),
+    listCategoriesWithCounts: async () => [...categories].sort((a, b) => a.sort_order - b.sort_order || a.id - b.id).map(withCount),
+    createCategory: async ({ name, icon } = {}) => {
+      const clean = validateCategoryName(name);
+      const key = icon == null || icon === '' ? DEFAULT_CATEGORY_ICON : icon;
+      if (!isChoosableIcon(key)) throw new DocumentError('INVALID_ICON', 'Please choose one of the available icons.');
+      if (dupName(clean)) throw new DocumentError('DUPLICATE_CATEGORY', 'A category with this name already exists.');
+      const c = { id: nextCategoryId++, slug: `custom-${crypto.randomUUID()}`, name: clean, icon: key, sort_order: Math.max(0, ...categories.map((x) => x.sort_order)) + 1, is_custom: 1, created_at: new Date().toISOString() };
+      categories.push(c);
+      return withCount(c);
+    },
+    updateCategory: async (id, { name, icon } = {}) => {
+      const c = categoryOf(id);
+      if (c.is_custom !== 1) throw new DocumentError('CATEGORY_LOCKED', 'Built-in categories cannot be changed.');
+      const clean = name === undefined ? c.name : validateCategoryName(name);
+      if (icon !== undefined && icon !== c.icon && !isChoosableIcon(icon)) throw new DocumentError('INVALID_ICON', 'Please choose one of the available icons.');
+      if (dupName(clean, id)) throw new DocumentError('DUPLICATE_CATEGORY', 'A category with this name already exists.');
+      c.name = clean;
+      if (icon !== undefined) c.icon = icon;
+      return withCount(c);
+    },
+    deleteCategory: async (id, { moveTo } = {}) => {
+      const c = categoryOf(id);
+      if (c.is_custom !== 1) throw new DocumentError('CATEGORY_LOCKED', 'Built-in categories cannot be deleted.');
+      const n = docs.filter((d) => d.categoryId === id).length;
+      if (n > 0) {
+        if (moveTo == null) { const err = new DocumentError('CATEGORY_NOT_EMPTY', `This category still contains ${n} ${n === 1 ? 'document' : 'documents'}. Choose where to move them first.`); err.count = n; throw err; }
+        if (Number(moveTo) === id) throw new DocumentError('INVALID_CATEGORY', 'Choose a different category to move the documents to.');
+        categoryOf(Number(moveTo));
+        docs.forEach((d) => { if (d.categoryId === id) d.categoryId = Number(moveTo); });
+      }
+      categories.splice(categories.indexOf(c), 1);
+      return { moved: n };
+    },
     list: async (categoryId) => docs.filter((d) => categoryId == null || d.categoryId === categoryId).map((d) => ({ ...d })),
     // Browser preview: stand-ins for the native picker and camera (no real file access).
     pickFile: async () => ({ name: `Sample_upload_${nextId}.pdf`, mimeType: 'application/pdf', size: 2048, data: 'QUJD' }),

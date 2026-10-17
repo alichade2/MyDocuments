@@ -3,6 +3,7 @@
 
 import { normalizeQuery, escapeLike, parseDateQuery } from './search.js';
 import { writeZip, uniqueEntryPaths, ZIP_LIMITS } from './zip.js';
+import { DEFAULT_CATEGORY_ICON, isChoosableIcon } from './icons.js';
 
 export const DOCS_DIR = 'documents';
 const SHARE_DIR = 'share';
@@ -57,6 +58,16 @@ export function shareFileName(displayName, ext) {
   return `${base}.${ext}`;
 }
 
+export const MAX_CATEGORY_NAME_LENGTH = 40;
+
+/** Trims, collapses inner whitespace and rejects empty / over-long category names. Duplicates are checked against the database. */
+export function validateCategoryName(name) {
+  const clean = String(name ?? '').replace(/\s+/g, ' ').trim();
+  if (!clean) throw new DocumentError('INVALID_CATEGORY_NAME', 'Please enter a category name.');
+  if (clean.length > MAX_CATEGORY_NAME_LENGTH) throw new DocumentError('INVALID_CATEGORY_NAME', `Category name must be ${MAX_CATEGORY_NAME_LENGTH} characters or fewer.`);
+  return clean;
+}
+
 export function validateName(name) {
   const trimmed = String(name ?? '').replace(/\s+/g, ' ').trim();
   if (!trimmed) throw new DocumentError('INVALID_NAME', 'Document name cannot be empty.');
@@ -87,6 +98,11 @@ export function createDocumentService({ db, storage, picker, viewer, camera, sha
     const rows = await db.all('SELECT id FROM categories WHERE id = ?;', [categoryId]);
     if (!rows.length) throw new DocumentError('INVALID_CATEGORY', 'Unknown category.');
   }
+  async function getCategoryRow(id) {
+    const rows = await db.all('SELECT * FROM categories WHERE id = ?;', [id]);
+    if (!rows.length) throw new DocumentError('INVALID_CATEGORY', 'Unknown category.');
+    return rows[0];
+  }
   async function getRow(id) {
     const rows = await db.all('SELECT * FROM documents WHERE id = ?;', [id]);
     if (!rows.length) throw new DocumentError('NOT_FOUND', 'Document not found.');
@@ -95,7 +111,85 @@ export function createDocumentService({ db, storage, picker, viewer, camera, sha
 
   const service = {
     async listCategories() {
-      return db.all('SELECT id, slug, name, icon, sort_order FROM categories ORDER BY sort_order, id;');
+      return db.all('SELECT id, slug, name, icon, sort_order, is_custom, created_at FROM categories ORDER BY sort_order, id;');
+    },
+
+    /** Categories with their document counts (for Manage Categories). */
+    async listCategoriesWithCounts() {
+      const rows = await db.all(
+        `SELECT c.id, c.slug, c.name, c.icon, c.sort_order, c.is_custom, c.created_at, COUNT(d.id) AS doc_count
+           FROM categories c LEFT JOIN documents d ON d.category_id = c.id
+          GROUP BY c.id ORDER BY c.sort_order, c.id;`);
+      return rows.map((r) => ({ id: r.id, slug: r.slug, name: r.name, icon: r.icon, sortOrder: r.sort_order, isCustom: r.is_custom === 1, createdAt: r.created_at, docCount: r.doc_count }));
+    },
+
+    /** Creates a user category: unique id + slug, trimmed name unique ignoring case, one of the offered icons (default: folder). */
+    async createCategory({ name, icon } = {}) {
+      const clean = validateCategoryName(name);
+      const iconKey = icon == null || icon === '' ? DEFAULT_CATEGORY_ICON : icon;
+      if (!isChoosableIcon(iconKey)) throw new DocumentError('INVALID_ICON', 'Please choose one of the available icons.');
+      const slug = `custom-${uuid()}`;
+      const duplicate = () => new DocumentError('DUPLICATE_CATEGORY', 'A category with this name already exists.');
+      try {
+        await db.transaction(async () => {
+          if ((await db.all('SELECT id FROM categories WHERE name = ? COLLATE NOCASE;', [clean])).length) throw duplicate();
+          await db.run(
+            `INSERT INTO categories (slug, name, icon, sort_order, is_custom, created_at)
+             VALUES (?, ?, ?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM categories), 1, ?);`,
+            [slug, clean, iconKey, now()]);
+        });
+      } catch (err) {
+        if (err instanceof DocumentError) throw err;
+        if (/UNIQUE/i.test(String(err?.message ?? err))) throw duplicate(); // the NOCASE index is the final guard
+        throw err;
+      }
+      return (await service.listCategoriesWithCounts()).find((c) => c.slug === slug);
+    },
+
+    /** Renames / re-icons a custom category. Documents keep pointing at the category id, so nothing is re-linked. */
+    async updateCategory(id, { name, icon } = {}) {
+      const row = await getCategoryRow(id);
+      if (row.is_custom !== 1) throw new DocumentError('CATEGORY_LOCKED', 'Built-in categories cannot be changed.');
+      const clean = name === undefined ? row.name : validateCategoryName(name);
+      const iconKey = icon === undefined ? row.icon : icon;
+      if (!isChoosableIcon(iconKey) && iconKey !== row.icon) throw new DocumentError('INVALID_ICON', 'Please choose one of the available icons.');
+      try {
+        await db.transaction(async () => {
+          if ((await db.all('SELECT id FROM categories WHERE name = ? COLLATE NOCASE AND id <> ?;', [clean, id])).length) {
+            throw new DocumentError('DUPLICATE_CATEGORY', 'A category with this name already exists.');
+          }
+          await db.run('UPDATE categories SET name = ?, icon = ? WHERE id = ?;', [clean, iconKey, id]);
+        });
+      } catch (err) {
+        if (err instanceof DocumentError) throw err;
+        if (/UNIQUE/i.test(String(err?.message ?? err))) throw new DocumentError('DUPLICATE_CATEGORY', 'A category with this name already exists.');
+        throw err;
+      }
+      return (await service.listCategoriesWithCounts()).find((c) => c.id === id);
+    },
+
+    /**
+     * Deletes a custom category. A category that still has documents is never deleted silently: the caller must give
+     * `moveTo` (another category id) and the documents are re-pointed there. No document file is touched.
+     */
+    async deleteCategory(id, { moveTo } = {}) {
+      const row = await getCategoryRow(id);
+      if (row.is_custom !== 1) throw new DocumentError('CATEGORY_LOCKED', 'Built-in categories cannot be deleted.');
+      const [{ n }] = await db.all('SELECT COUNT(*) AS n FROM documents WHERE category_id = ?;', [id]);
+      if (n > 0) {
+        if (moveTo == null) {
+          const err = new DocumentError('CATEGORY_NOT_EMPTY', `This category still contains ${n} ${n === 1 ? 'document' : 'documents'}. Choose where to move them first.`);
+          err.count = n;
+          throw err;
+        }
+        if (Number(moveTo) === id) throw new DocumentError('INVALID_CATEGORY', 'Choose a different category to move the documents to.');
+        await getCategoryRow(Number(moveTo)); // must exist
+      }
+      await db.transaction(async () => {
+        if (n > 0) await db.run('UPDATE documents SET category_id = ? WHERE category_id = ?;', [Number(moveTo), id]);
+        await db.run('DELETE FROM categories WHERE id = ?;', [id]);
+      });
+      return { moved: n };
     },
 
     /** Documents of a category (all when categoryId is omitted); flags records whose file is gone. */

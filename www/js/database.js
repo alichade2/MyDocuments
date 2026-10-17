@@ -4,7 +4,7 @@
 export const DB_NAME = 'mydocs';
 import { CATEGORIES, LEGACY_NAMES, demoDocuments } from './seed.js';
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 export const DEFAULT_CATEGORIES = CATEGORIES.map((c) => c.name);
 
 const MIGRATIONS = [
@@ -58,6 +58,9 @@ const MIGRATIONS = [
    CREATE INDEX idx_documents_name ON documents(name);`,
   // v3: optional thumbnail file for image documents.
   `ALTER TABLE documents ADD COLUMN thumb_path TEXT;`,
+  // v4: user-created categories. is_custom marks them (built-in ones stay permanent); names are unique ignoring case.
+  `ALTER TABLE categories ADD COLUMN is_custom INTEGER NOT NULL DEFAULT 0;
+   CREATE UNIQUE INDEX idx_categories_name_nocase ON categories(name COLLATE NOCASE);`,
 ];
 
 // Categories are upserted by stable slug on every launch (idempotent); v1 rows are adopted by name.

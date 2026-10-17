@@ -12,6 +12,7 @@ Lightweight document manager: vanilla HTML/CSS/ES modules, SQLite metadata, file
 | `www/js/documents.js` | Document service (import, list, rename, delete, open, reconcile) + Capacitor adapters |
 | `www/js/seed.js` | The 12 categories and demo document metadata |
 | `www/js/theme.js`, `www/js/theme-init.js` | Light/Dark theme preference (stored in localStorage, applied before first paint) |
+| `www/js/icons.js` | Icon registry: stable key -> SVG path, the 25 category icon choices, folder fallback |
 | `www/js/nav.js`, `www/js/menu.js` | Left navigation drawer component; menu items + Settings structure as data |
 | `www/js/zip.js` | Streaming ZIP writer + safe entry names (no dependencies) |
 | `www/js/selection.js` | Id-based multi-selection state for the All Documents tab |
@@ -82,6 +83,10 @@ Settings -> Appearance -> Theme switches between Light (the default) and Dark. A
 ## Menu and Settings
 
 The hamburger icon in the header opens a left navigation drawer. To add a destination: add an entry to `MENU_ITEMS` in `www/js/menu.js` and a handler under `destinations` in `www/js/app.js`. Settings rows come from `buildSettingsSections()` in `menu.js`.
+
+## Custom categories
+
+Settings -> Manage Categories lets users add, rename/re-icon and delete their own categories (built-in ones are permanent). Categories are stored in SQLite (`categories.is_custom`, unique case-insensitive name) and only the icon *key* is saved; to add an icon, add its SVG path to `ICON_PATHS` in `www/js/icons.js` and its key/label to `CATEGORY_ICON_CHOICES`. Deleting a non-empty category requires moving its documents to another category.
 
 ## All Documents and ZIP sharing
 
