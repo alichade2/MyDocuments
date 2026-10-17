@@ -1,4 +1,4 @@
-// Static seed data: the 12 dashboard categories and clearly-marked DEMO document metadata.
+// Static seed data: the built-in dashboard categories and clearly-marked DEMO document metadata.
 // Demo records have no real file behind them (file_path is NULL, is_demo = 1).
 
 export const CATEGORIES = [
@@ -14,7 +14,15 @@ export const CATEGORIES = [
   { slug: 'bills-receipts', name: 'Bills & Receipts', icon: 'receipt', docs: ['Shopping Invoice', 'Laptop Purchase Receipt', 'Electricity Bill', 'Mobile Bill', 'Product Warranty'] },
   { slug: 'legal-documents', name: 'Legal Documents', icon: 'gavel', docs: ['Legal Agreement', 'Affidavit', 'Legal Notice', 'Court Order', 'Notarized Document'] },
   { slug: 'travel-documents', name: 'Travel Documents', icon: 'plane', docs: ['Flight Ticket', 'Hotel Booking', 'Visa Document', 'Travel Insurance', 'Train Ticket'] },
+  // Built-in categories are appended here (never reordered); a new one never gets sample documents.
+  { slug: 'agricultural-documents', name: 'Agricultural Documents', icon: 'agriculture', docs: [] },
 ];
+
+/**
+ * Built-in categories use sort_order 1..N in the order above. User-created categories start at this base,
+ * so they always follow every built-in one, including built-ins added in later app versions.
+ */
+export const CUSTOM_ORDER_BASE = 1000;
 
 /** Names used by schema v1 that map onto new slugs (renamed categories). */
 export const LEGACY_NAMES = { 'IDs': 'identity-documents', 'Work Related Documents': 'work-career' };

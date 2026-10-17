@@ -4,6 +4,7 @@
 import { normalizeQuery, escapeLike, parseDateQuery } from './search.js';
 import { writeZip, uniqueEntryPaths, ZIP_LIMITS } from './zip.js';
 import { DEFAULT_CATEGORY_ICON, isChoosableIcon } from './icons.js';
+import { CUSTOM_ORDER_BASE } from './seed.js';
 
 export const DOCS_DIR = 'documents';
 const SHARE_DIR = 'share';
@@ -135,8 +136,8 @@ export function createDocumentService({ db, storage, picker, viewer, camera, sha
           if ((await db.all('SELECT id FROM categories WHERE name = ? COLLATE NOCASE;', [clean])).length) throw duplicate();
           await db.run(
             `INSERT INTO categories (slug, name, icon, sort_order, is_custom, created_at)
-             VALUES (?, ?, ?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM categories), 1, ?);`,
-            [slug, clean, iconKey, now()]);
+             VALUES (?, ?, ?, (SELECT MAX(COALESCE(MAX(sort_order), 0), ?) + 1 FROM categories), 1, ?);`,
+            [slug, clean, iconKey, CUSTOM_ORDER_BASE, now()]); // user categories always sort after the built-in ones
         });
       } catch (err) {
         if (err instanceof DocumentError) throw err;

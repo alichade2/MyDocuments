@@ -2,9 +2,9 @@
 // only sees createDatabase(driver) -> { init, all, run, transaction, close }.
 
 export const DB_NAME = 'mydocs';
-import { CATEGORIES, LEGACY_NAMES, demoDocuments } from './seed.js';
+import { CATEGORIES, LEGACY_NAMES, CUSTOM_ORDER_BASE, demoDocuments } from './seed.js';
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 export const DEFAULT_CATEGORIES = CATEGORIES.map((c) => c.name);
 
 const MIGRATIONS = [
@@ -61,15 +61,31 @@ const MIGRATIONS = [
   // v4: user-created categories. is_custom marks them (built-in ones stay permanent); names are unique ignoring case.
   `ALTER TABLE categories ADD COLUMN is_custom INTEGER NOT NULL DEFAULT 0;
    CREATE UNIQUE INDEX idx_categories_name_nocase ON categories(name COLLATE NOCASE);`,
+  // v5: user categories sort after every built-in one, whatever built-ins later versions add (see CUSTOM_ORDER_BASE).
+  `UPDATE categories SET sort_order = sort_order + ${CUSTOM_ORDER_BASE} WHERE is_custom = 1 AND sort_order < ${CUSTOM_ORDER_BASE};`,
 ];
 
 // Categories are upserted by stable slug on every launch (idempotent); v1 rows are adopted by name.
-async function seedCategories(driver) {
+async function seedCategories(driver, { checkCustomClashes = true } = {}) {
   for (const c of CATEGORIES) {
     await driver.run('UPDATE categories SET slug = ? WHERE slug IS NULL AND name = ?;', [c.slug, c.name]);
   }
   for (const [name, slug] of Object.entries(LEGACY_NAMES)) {
     await driver.run('UPDATE categories SET slug = ? WHERE slug IS NULL AND name = ?;', [slug, name]);
+  }
+  // A user category that already uses a built-in name (e.g. someone created "Agricultural Documents" before it
+  // became built-in) is renamed, not deleted, so the built-in row can be inserted and no documents are lost.
+  for (const c of checkCustomClashes ? CATEGORIES : []) { // (the v2 migration runs before is_custom exists; there are no custom rows yet)
+    const clashes = await driver.all('SELECT id FROM categories WHERE name = ? COLLATE NOCASE AND is_custom = 1 AND slug <> ?;', [c.name, c.slug]);
+    for (const row of clashes) {
+      let n = 0;
+      let candidate;
+      do {
+        n += 1;
+        candidate = `${c.name} (custom${n > 1 ? ` ${n}` : ''})`;
+      } while ((await driver.all('SELECT id FROM categories WHERE name = ? COLLATE NOCASE;', [candidate])).length);
+      await driver.run('UPDATE categories SET name = ? WHERE id = ?;', [candidate, row.id]);
+    }
   }
   for (const [i, c] of CATEGORIES.entries()) {
     await driver.run(
@@ -105,7 +121,7 @@ export function createDatabase(driver) {
       await transaction(async () => {
         await driver.exec(MIGRATIONS[version]);
         if (next === 2) {
-          await seedCategories(driver);
+          await seedCategories(driver, { checkCustomClashes: false });
           await seedDemoDocuments(driver);
         }
         await driver.exec(`PRAGMA user_version = ${next};`);

@@ -1,6 +1,6 @@
 // Browser-preview only: in-memory repository with the same interface as the document service,
 // seeded from the same demo data as SQLite. Nothing persists; never used on a native platform.
-import { CATEGORIES, demoDocuments } from './seed.js';
+import { CATEGORIES, CUSTOM_ORDER_BASE, demoDocuments } from './seed.js';
 import { DEMO_MESSAGE, DocumentError, validateName, validateCategoryName, extensionOf, SUPPORTED_TYPES, IMAGE_TYPES } from './documents.js';
 import { DEFAULT_CATEGORY_ICON, isChoosableIcon } from './icons.js';
 import { createThumbnail } from './images.js';
@@ -43,7 +43,7 @@ export function createMockService() {
       const key = icon == null || icon === '' ? DEFAULT_CATEGORY_ICON : icon;
       if (!isChoosableIcon(key)) throw new DocumentError('INVALID_ICON', 'Please choose one of the available icons.');
       if (dupName(clean)) throw new DocumentError('DUPLICATE_CATEGORY', 'A category with this name already exists.');
-      const c = { id: nextCategoryId++, slug: `custom-${crypto.randomUUID()}`, name: clean, icon: key, sort_order: Math.max(0, ...categories.map((x) => x.sort_order)) + 1, is_custom: 1, created_at: new Date().toISOString() };
+      const c = { id: nextCategoryId++, slug: `custom-${crypto.randomUUID()}`, name: clean, icon: key, sort_order: Math.max(CUSTOM_ORDER_BASE, ...categories.map((x) => x.sort_order)) + 1, is_custom: 1, created_at: new Date().toISOString() };
       categories.push(c);
       return withCount(c);
     },

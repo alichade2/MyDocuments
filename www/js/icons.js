@@ -45,6 +45,8 @@ export const ICON_PATHS = {
   more_horiz: 'M6 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2Zm12 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2Zm-6 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2Z',
   categories: 'M3 3h8v8H3V3Zm10 0h8v8h-8V3ZM3 13h8v8H3v-8Zm10 0h8v8h-8v-8Z',
   add: 'M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2Z',
+  // tractor (built-in Agricultural Documents only; not one of the 25 icons users can pick)
+  agriculture: 'M5 4h6.5v7H5V4Zm1.5 1.5v4H10v-4H6.5ZM12.5 11H19l2 3.5V16h-8.5v-5ZM19 6h1.5v5H19V6ZM7.5 12a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9Zm0 2.5a2 2 0 1 1 0 4 2 2 0 0 1 0-4ZM18.5 16a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Zm0 1.5a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z',
   lock: 'M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2Zm-6 9a2 2 0 1 1 0-4 2 2 0 0 1 0 4Zm3.1-9H8.9V6a3.1 3.1 0 0 1 6.2 0v2Z',
 };
 

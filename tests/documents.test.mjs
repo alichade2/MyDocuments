@@ -69,7 +69,7 @@ test('init is idempotent: no duplicate categories on relaunch', async () => {
   const driver = nodeDriver();
   await createDatabase(driver).init();
   await createDatabase(driver).init();
-  assert.equal(driver.sqlite.prepare('SELECT COUNT(*) c FROM categories').get().c, 12);
+  assert.equal(driver.sqlite.prepare('SELECT COUNT(*) c FROM categories').get().c, 13);
   assert.equal(driver.sqlite.prepare('SELECT COUNT(*) c FROM documents').get().c, 58);
 });
 
@@ -198,12 +198,12 @@ const V1_SCHEMA = `
     VALUES (3,'My real ID scan','id.pdf','pdf','application/pdf','documents/real.pdf',10,'t','t');
   PRAGMA user_version = 1;`;
 
-test('12 categories in the required order with slugs, icons and sort order', async () => {
+test('13 built-in categories in the required order with slugs, icons and sort order', async () => {
   const { svc } = await setup();
   const cats = await svc.listCategories();
   assert.deepEqual(cats.map((c) => c.name), [
     'Personal Documents', 'Educational Documents', 'Identity Documents', 'Work & Career', 'Financial Documents', 'Medical & Health',
-    'Insurance Documents', 'Property & Real Estate', 'Vehicle Documents', 'Bills & Receipts', 'Legal Documents', 'Travel Documents']);
+    'Insurance Documents', 'Property & Real Estate', 'Vehicle Documents', 'Bills & Receipts', 'Legal Documents', 'Travel Documents', 'Agricultural Documents']);
   assert.deepEqual(cats.map((c) => c.slug), CATEGORIES.map((c) => c.slug));
   assert.ok(cats.every((c) => c.icon && /^[a-z]+(-[a-z]+)*$/.test(c.slug)));
 });
@@ -239,7 +239,7 @@ test('upgrade from schema v1 keeps real documents and renames/adopts categories'
   await db.init();
   const svc = createDocumentService({ db, storage: memStorage() });
   const cats = await svc.listCategories();
-  assert.equal(cats.length, 12);
+  assert.equal(cats.length, 13);
   assert.equal(cats[2].id, 3); // "IDs" row adopted as Identity Documents
   assert.equal(cats[2].name, 'Identity Documents');
   const realDocs = await real(svc, 3);
@@ -274,7 +274,7 @@ test('an empty category shows no documents after its demo docs are removed', asy
 test('mock repository mirrors the seed data and rejects opening samples', async () => {
   const mock = createMockService();
   const cats = await mock.listCategories();
-  assert.equal(cats.length, 12);
+  assert.equal(cats.length, 13);
   for (const spec of CATEGORIES) {
     const docs = await mock.list(cats.find((c) => c.slug === spec.slug).id);
     assert.equal(docs.length, spec.docs.length);
@@ -866,11 +866,11 @@ test('createCategory: unique id/slug, default icon, custom flag, ordered after b
   const b = await svc.createCategory({ name: 'Hobbies' }); // no icon -> folder
   assert.deepEqual([a.name, a.icon, a.isCustom, a.docCount, a.createdAt], ['Pet Records', 'pets', true, 0, '2026-10-17T10:00:00.000Z']);
   assert.equal(b.icon, 'folder');
-  assert.ok(a.id > 12 && b.id > a.id && a.slug !== b.slug && a.slug.startsWith('custom-'));
+  assert.ok(a.id > 13 && b.id > a.id && a.slug !== b.slug && a.slug.startsWith('custom-'));
   const all = await svc.listCategories();
-  assert.equal(all.length, 14);
-  assert.deepEqual(all.slice(-2).map((c) => c.name), ['Pet Records', 'Hobbies']); // appended after the 12 built-in ones
-  assert.ok(all.slice(0, 12).every((c) => c.is_custom === 0) && all.slice(12).every((c) => c.is_custom === 1));
+  assert.equal(all.length, 15);
+  assert.deepEqual(all.slice(-2).map((c) => c.name), ['Pet Records', 'Hobbies']); // appended after the 13 built-in ones
+  assert.ok(all.slice(0, 13).every((c) => c.is_custom === 0) && all.slice(13).every((c) => c.is_custom === 1));
 });
 
 test('createCategory rejects empty, duplicate (case-insensitive, also vs built-ins), bad icons and writes nothing', async () => {
@@ -882,7 +882,7 @@ test('createCategory rejects empty, duplicate (case-insensitive, also vs built-i
     [{ name: 'identity documents' }, 'DUPLICATE_CATEGORY'], [{ name: 'Travel Documents' }, 'DUPLICATE_CATEGORY'],
     [{ name: 'Fine', icon: 'not-an-icon' }, 'INVALID_ICON'], [{ name: 'Fine', icon: 'badge' }, 'INVALID_ICON'],
   ]) await assert.rejects(svc.createCategory(input), { code }, JSON.stringify(input));
-  assert.equal((await svc.listCategories()).length, 13);
+  assert.equal((await svc.listCategories()).length, 14);
 });
 
 test('custom categories persist across a restart and work with documents, search, All Documents and ZIP', async () => {
@@ -898,7 +898,7 @@ test('custom categories persist across a restart and work with documents, search
   await second.init();
   const svc2 = createDocumentService({ db: second, storage });
   const cats = await svc2.listCategoriesWithCounts();
-  assert.equal(cats.length, 14);
+  assert.equal(cats.length, 15);
   assert.deepEqual(cats.filter((c) => c.isCustom).map((c) => [c.name, c.icon, c.docCount]), [['Pet Records', 'pets', 1], ['Empty One', 'folder', 0]]);
   assert.equal((await svc2.list(cat.id))[0].name, 'Vet Invoice');
   assert.deepEqual((await svc2.search('vet')).map((d) => [d.name, d.categoryName]), [['Vet Invoice', 'Pet Records']]);
@@ -935,7 +935,7 @@ test('deleteCategory: empty ones delete; non-empty need a move target and keep e
   const { svc, storage } = await setup();
   const empty = await svc.createCategory({ name: 'Temp' });
   assert.deepEqual(await svc.deleteCategory(empty.id), { moved: 0 });
-  assert.equal((await svc.listCategories()).length, 12);
+  assert.equal((await svc.listCategories()).length, 13);
 
   const cat = await svc.createCategory({ name: 'Moveable' });
   const d1 = await svc.importFile(cat.id, pdf('a.pdf'), 'One');
@@ -946,24 +946,24 @@ test('deleteCategory: empty ones delete; non-empty need a move target and keep e
   assert.equal(err.count, 2);
   await assert.rejects(svc.deleteCategory(cat.id, { moveTo: cat.id }), { code: 'INVALID_CATEGORY' });
   await assert.rejects(svc.deleteCategory(cat.id, { moveTo: 99999 }), { code: 'INVALID_CATEGORY' });
-  assert.equal((await svc.listCategories()).length, 13); // failed attempts deleted nothing
+  assert.equal((await svc.listCategories()).length, 14); // failed attempts deleted nothing
   assert.deepEqual(await svc.deleteCategory(cat.id, { moveTo: 2 }), { moved: 2 });
   assert.deepEqual([(await svc.get(d1.id)).categoryId, (await svc.get(d2.id)).categoryId], [2, 2]);
   assert.deepEqual([...storage.files.keys()].sort(), files, 'no document file was deleted');
-  assert.equal((await svc.listCategories()).length, 12);
+  assert.equal((await svc.listCategories()).length, 13);
   await assert.rejects(svc.deleteCategory(3), { code: 'CATEGORY_LOCKED' });
 });
 
-test('v3 database upgrades to v4: is_custom added, data kept, names unique ignoring case', async () => {
+test('v3 database upgrades to the current schema: is_custom added, data kept, names unique ignoring case', async () => {
   const driver = nodeDriver();
   await createDatabase(driver).init();
   driver.sqlite.exec('DROP INDEX idx_categories_name_nocase; ALTER TABLE categories DROP COLUMN is_custom; PRAGMA user_version = 3;');
   const db = createDatabase(driver);
   await db.init();
   const svc = createDocumentService({ db, storage: memStorage() });
-  assert.equal(driver.sqlite.prepare('PRAGMA user_version').get().user_version, 4);
+  assert.equal(driver.sqlite.prepare('PRAGMA user_version').get().user_version, SCHEMA_VERSION);
   const cats = await svc.listCategories();
-  assert.equal(cats.length, 12);
+  assert.equal(cats.length, 13);
   assert.ok(cats.every((c) => c.is_custom === 0));
   assert.equal((await svc.list()).length, 58);
   await assert.rejects(svc.createCategory({ name: 'IDENTITY documents' }), { code: 'DUPLICATE_CATEGORY' });
@@ -981,6 +981,103 @@ test('in-memory preview category behaviour matches the SQLite service', async ()
     await assert.rejects(s.updateCategory(1, { name: 'x' }), { code: 'CATEGORY_LOCKED' });
     assert.equal((await s.updateCategory(c.id, { name: 'Pets', icon: 'cloud' })).icon, 'cloud');
     assert.deepEqual(await s.deleteCategory(c.id), { moved: 0 });
-    assert.equal((await s.listCategories()).length, 12);
+    assert.equal((await s.listCategories()).length, 13);
   }
+});
+
+/* ---------- Agricultural Documents (13th built-in category) ---------- */
+import { CUSTOM_ORDER_BASE } from '../www/js/seed.js';
+
+test('Agricultural Documents is the last built-in category: stable slug, tractor icon, no sample documents', async () => {
+  const { svc } = await setup();
+  const cats = await svc.listCategories();
+  const agri = cats.find((c) => c.slug === 'agricultural-documents');
+  assert.deepEqual([agri.name, agri.icon, agri.is_custom, agri.sort_order], ['Agricultural Documents', 'agriculture', 0, 13]);
+  assert.equal(cats.filter((c) => c.is_custom === 0).at(-1).slug, 'agricultural-documents');
+  assert.deepEqual(cats.slice(0, 12).map((c) => c.slug), CATEGORIES.slice(0, 12).map((c) => c.slug)); // existing order untouched
+  assert.deepEqual(await svc.list(agri.id), []);
+  assert.ok(Object.hasOwn(ICON_PATHS, 'agriculture') && !isChoosableIcon('agriculture'));
+  assert.equal((await svc.listCategoriesWithCounts()).at(-1).docCount, 0);
+});
+
+test('it stays last among built-ins after restarts, with no duplicates, and custom categories follow it', async () => {
+  const driver = nodeDriver();
+  const storage = memStorage();
+  for (let i = 0; i < 3; i++) await createDatabase(driver).init();
+  assert.equal(driver.sqlite.prepare("SELECT COUNT(*) c FROM categories WHERE slug = 'agricultural-documents'").get().c, 1);
+  assert.equal(driver.sqlite.prepare("SELECT COUNT(*) c FROM categories WHERE name = 'Agricultural Documents' COLLATE NOCASE").get().c, 1);
+  const db = createDatabase(driver);
+  await db.init();
+  const svc = createDocumentService({ db, storage });
+  const custom = await svc.createCategory({ name: 'Pet Records', icon: 'pets' });
+  assert.ok(custom.sortOrder > CUSTOM_ORDER_BASE);
+  await createDatabase(driver).init(); // another launch re-seeds built-ins
+  const names = (await svc.listCategories()).map((c) => c.name);
+  assert.deepEqual(names.slice(-2), ['Agricultural Documents', 'Pet Records']);
+});
+
+test('upgrading a v4 database that already has custom categories keeps them after the new built-in category', async () => {
+  const driver = nodeDriver();
+  await createDatabase(driver).init();
+  // simulate the previous app version: no Agricultural row, customs numbered right after the 12 built-ins
+  driver.sqlite.exec(`DELETE FROM categories WHERE slug = 'agricultural-documents';
+    INSERT INTO categories (slug,name,icon,sort_order,is_custom,created_at) VALUES ('custom-a','Hobbies','folder',13,1,'t'), ('custom-b','Pets','pets',14,1,'t');
+    PRAGMA user_version = 4;`);
+  const db = createDatabase(driver);
+  await db.init();
+  const svc = createDocumentService({ db, storage: memStorage() });
+  assert.deepEqual((await svc.listCategories()).slice(-3).map((c) => c.name), ['Agricultural Documents', 'Hobbies', 'Pets']);
+  assert.equal(driver.sqlite.prepare('PRAGMA user_version').get().user_version, SCHEMA_VERSION);
+  assert.equal((await svc.list()).length, 58); // no sample documents were added
+});
+
+test('a custom category that already has the new built-in name is renamed, not lost, and its documents are kept', async () => {
+  const driver = nodeDriver();
+  await createDatabase(driver).init();
+  driver.sqlite.exec(`DELETE FROM categories WHERE slug = 'agricultural-documents';
+    INSERT INTO categories (slug,name,icon,sort_order,is_custom,created_at) VALUES ('custom-a','agricultural documents','folder',13,1,'t');
+    INSERT INTO documents (category_id,name,original_filename,file_type,mime_type,file_path,file_size,created_at,updated_at)
+      SELECT id,'My farm record','farm.pdf','pdf','application/pdf','documents/farm.pdf',10,'t','t' FROM categories WHERE slug = 'custom-a';
+    PRAGMA user_version = 4;`);
+  const db = createDatabase(driver);
+  await db.init();
+  const svc = createDocumentService({ db, storage: memStorage() });
+  const cats = await svc.listCategoriesWithCounts();
+  const builtIn = cats.find((c) => c.slug === 'agricultural-documents');
+  const renamed = cats.find((c) => c.slug === 'custom-a');
+  assert.equal(builtIn.name, 'Agricultural Documents');
+  assert.equal(renamed.name, 'Agricultural Documents (custom)');
+  assert.equal(renamed.docCount, 1);
+  assert.equal(cats.filter((c) => /^agricultural documents$/i.test(c.name)).length, 1);
+  await createDatabase(driver).init(); // a second launch changes nothing
+  assert.equal((await svc.listCategories()).filter((c) => /agricultural/i.test(c.name)).length, 2);
+});
+
+test('documents in Agricultural Documents work with import, All Documents, search, rename and ZIP sharing', async () => {
+  const shared = [];
+  const { svc, storage } = await setup({ sharer: { share: async (a) => { shared.push(a); return true; } } });
+  const agri = (await svc.listCategories()).find((c) => c.slug === 'agricultural-documents');
+  const doc = await svc.importFile(agri.id, pdf('7-12.pdf'), 'Land Record 7/12');
+  assert.equal(doc.categoryId, agri.id);
+  assert.deepEqual((await svc.listAll()).filter((d) => d.categoryId === agri.id).map((d) => [d.name, d.categoryName]), [['Land Record 7/12', 'Agricultural Documents']]);
+  assert.deepEqual((await svc.search('land record')).map((d) => [d.name, d.categoryName]), [['Land Record 7/12', 'Agricultural Documents']]);
+  assert.equal((await svc.rename(doc.id, 'Soil Test Report')).name, 'Soil Test Report');
+  storage.files.set(doc.filePath, 'UERGREFUQQ==');
+  await svc.shareSelectedAsZip([doc.id]);
+  assert.equal(readZip(zipBytes(storage.shareFile.chunks))[0].name, 'Agricultural Documents/Soil Test Report.pdf');
+  await svc.remove(doc.id);
+  assert.deepEqual(await svc.list(agri.id), []);
+});
+
+test('built-in Agricultural Documents is permanent and its name is reserved; the browser preview matches', async () => {
+  const { svc } = await setup();
+  const agri = (await svc.listCategories()).find((c) => c.slug === 'agricultural-documents');
+  await assert.rejects(svc.deleteCategory(agri.id), { code: 'CATEGORY_LOCKED' });
+  await assert.rejects(svc.updateCategory(agri.id, { name: 'X' }), { code: 'CATEGORY_LOCKED' });
+  await assert.rejects(svc.createCategory({ name: 'agricultural documents' }), { code: 'DUPLICATE_CATEGORY' });
+  const mock = createMockService();
+  const cats = await mock.listCategories();
+  assert.equal(cats.at(-1).slug, 'agricultural-documents');
+  await mock.createCategory({ name: 'Pet Records', icon: 'pets' });
+  assert.deepEqual((await mock.listCategories()).slice(-2).map((c) => c.name), ['Agricultural Documents', 'Pet Records']);
 });

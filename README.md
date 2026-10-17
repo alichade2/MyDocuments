@@ -10,7 +10,7 @@ Lightweight document manager: vanilla HTML/CSS/ES modules, SQLite metadata, file
 | `www/js/app.js` | UI only: rendering, events, error toasts |
 | `www/js/database.js` | SQLite driver, schema/migrations (`PRAGMA user_version`), transactions, default categories |
 | `www/js/documents.js` | Document service (import, list, rename, delete, open, reconcile) + Capacitor adapters |
-| `www/js/seed.js` | The 12 categories and demo document metadata |
+| `www/js/seed.js` | The 13 built-in categories (append new ones at the end; user categories sort after them) and demo document metadata |
 | `www/js/theme.js`, `www/js/theme-init.js` | Light/Dark theme preference (stored in localStorage, applied before first paint) |
 | `www/js/applock.js`, `www/js/lock-init.js` | App Lock policy (when to ask; never what to compare) and the pre-paint "locked" marker; native side: `android/.../AppLockPlugin.java` (BiometricPrompt) |
 | `www/js/icons.js` | Icon registry: stable key -> SVG path, the 25 category icon choices, folder fallback |
