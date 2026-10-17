@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#1f5fbf">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self' http://localhost https://localhost capacitor://localhost">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self' http://localhost https://localhost capacitor://localhost https://www.googleapis.com">
   <title>MyDocs</title>
   <script src="js/theme-init.js"></script>
   <script src="js/lock-init.js"></script>
@@ -101,6 +101,26 @@
     </main>
   </div>
 
+  <div id="backup-scroller" class="scroller" hidden>
+    <main>
+      <section id="backup-view" aria-labelledby="bk-heading">
+        <h2 id="bk-heading" class="visually-hidden" data-i18n="bk.title">Backup & Restore</h2>
+        <div class="backup-card">
+          <h3 data-i18n="bk.backupTitle">Backup Data</h3>
+          <p data-i18n="bk.backupDesc">Export your documents, categories, and application data into a backup file.</p>
+          <p id="bk-last" class="backup-last" role="status"></p>
+          <button type="button" class="btn filled backup-btn" id="bk-create" data-i18n="bk.create">Create Backup</button>
+        </div>
+        <div class="backup-card">
+          <h3 data-i18n="bk.restoreTitle">Restore Data</h3>
+          <p data-i18n="bk.restoreDesc">Restore your documents and categories from a previous MyDocs backup.</p>
+          <button type="button" class="btn outlined backup-btn" id="bk-restore" data-i18n="bk.restore">Restore Backup</button>
+        </div>
+        <p class="settings-hint" data-i18n="bk.privacy">A backup contains copies of all your documents. The file is not encrypted, so keep it somewhere you trust. Nothing is uploaded unless you choose Google Drive.</p>
+      </section>
+    </main>
+  </div>
+
   <!-- Fixed Add Category bar + independently scrolling list (#cat-scroller) -->
   <div id="categories-scroller" class="fixed-page" hidden>
     <div class="fixed-page-bar">
@@ -168,6 +188,51 @@
     <h3 id="th-title" data-i18n="theme.title">Choose theme</h3>
     <div id="th-options" role="radiogroup" aria-labelledby="th-title"></div>
     <div class="dialog-actions"><button type="button" class="btn text" id="th-close" data-i18n="common.close">Close</button></div>
+  </dialog>
+
+  <dialog id="bk-progress-dialog" class="progress-dialog" aria-labelledby="bkp-text">
+    <span class="spinner" aria-hidden="true"></span>
+    <div class="bk-progress-body">
+      <p id="bkp-text" role="status"></p>
+      <progress id="bkp-bar" max="100" hidden></progress>
+      <button type="button" class="btn text" id="bkp-cancel" data-i18n="common.cancel" hidden>Cancel</button>
+    </div>
+  </dialog>
+
+  <dialog id="bk-ready-dialog" aria-labelledby="bkr-title">
+    <h3 id="bkr-title" data-i18n="bk.ready.title">Backup ready</h3>
+    <p id="bkr-file" class="bk-file"></p>
+    <p id="bkr-summary" class="cdel-text"></p>
+    <p id="bkr-warn" class="field-error" hidden></p>
+    <p class="cdel-text" data-i18n="bk.ready.choose">Where do you want to keep this backup?</p>
+    <p id="bkr-status" class="bk-status" role="status" hidden></p>
+    <div class="bk-actions">
+      <button type="button" class="btn filled" id="bkr-device" data-i18n="bk.saveDevice">Save to Device</button>
+      <button type="button" class="btn outlined" id="bkr-drive" data-i18n="bk.saveDrive">Upload to Google Drive</button>
+    </div>
+    <p class="settings-hint bk-note" data-i18n="bk.driveNote">The backup contains copies of your documents. It is uploaded only to the folder "MyDocs Backups" in your own Google Drive.</p>
+    <div class="dialog-actions"><button type="button" class="btn text" id="bkr-close" data-i18n="common.close">Close</button></div>
+  </dialog>
+
+  <dialog id="bk-restore-dialog" aria-labelledby="bks-title">
+    <h3 id="bks-title" data-i18n="bk.rs.title">Restore from backup</h3>
+    <p id="bks-file" class="bk-file"></p>
+    <p id="bks-created" class="cdel-text"></p>
+    <p id="bks-summary" class="cdel-text"></p>
+    <p id="bks-missing" class="field-error" hidden></p>
+    <fieldset class="bk-modes">
+      <legend data-i18n="bk.rs.mode">Restore mode</legend>
+      <label class="bk-mode selected" data-mode="replace"><input type="radio" name="bk-mode" value="replace" checked>
+        <span><strong data-i18n="bk.rs.replace">Replace existing data (recommended)</strong><span class="settings-desc" data-i18n="bk.rs.replaceDesc">Your current documents and categories are replaced by the backup, giving exactly the backed-up state. This cannot be undone.</span></span></label>
+      <label class="bk-mode" data-mode="merge"><input type="radio" name="bk-mode" value="merge">
+        <span><strong data-i18n="bk.rs.merge">Merge with existing data</strong><span class="settings-desc" data-i18n="bk.rs.mergeDesc">Adds what is missing. Documents already in MyDocs stay as they are, categories with the same name are combined and nothing is overwritten.</span></span></label>
+    </fieldset>
+    <label class="bk-check"><input type="checkbox" id="bks-safety" checked><span data-i18n="bk.rs.safety">Save a safety backup of my current data first</span></label>
+    <p id="bks-error" class="field-error" role="alert" hidden></p>
+    <div class="dialog-actions">
+      <button type="button" class="btn text" id="bks-cancel" data-i18n="common.cancel">Cancel</button>
+      <button type="button" class="btn danger-fill" id="bks-confirm">Replace and restore</button>
+    </div>
   </dialog>
 
   <dialog id="lang-dialog" aria-labelledby="lg-title">

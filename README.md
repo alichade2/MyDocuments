@@ -14,6 +14,7 @@ Lightweight document manager: vanilla HTML/CSS/ES modules, SQLite metadata, file
 | `www/js/theme.js`, `www/js/theme-init.js` | Light/Dark theme preference (stored in localStorage, applied before first paint) |
 | `www/js/applock.js`, `www/js/lock-init.js` | App Lock policy (when to ask; never what to compare) and the pre-paint "locked" marker; native side: `android/.../AppLockPlugin.java` (BiometricPrompt) |
 | `www/js/i18n.js`, `www/js/locales/{en,hi}.js`, `www/js/lang-init.js` | Localisation: `t()` lookup, English + Hindi tables, language preference (localStorage), built-in category labels |
+| `www/js/backup.js`, `www/js/zipread.js`, `www/js/drive.js`, `www/js/backup-native.js` | Backup / restore (`.mydocsbackup` ZIP: manifest + SQLite snapshot + documents), ZIP reader, Google Drive upload, Android adapters; native side: `android/.../BackupPlugin.java` |
 | `www/js/sizelimit.js` | Document size limit: allowed sizes (3/5/8/12/15 MB), saved setting, `checkSize()` (1 MB = 1,000,000 bytes) used by upload, camera and import |
 | `www/js/icons.js` | Icon registry: stable key -> SVG path, the 25 category icon choices, folder fallback |
 | `www/js/nav.js`, `www/js/menu.js` | Left navigation drawer component; menu items + Settings structure as data |
@@ -82,6 +83,14 @@ The header search icon expands into a field. Results update as you type across a
 ## Themes
 
 Settings -> Appearance -> Theme switches between Light (the default) and Dark. All colours are CSS tokens in `www/css/styles.css`: `:root` is Light, `:root[data-theme="dark"]` overrides them. The choice is the user's, not the device's, and is saved in `localStorage` and applied before the first paint. To retune a theme, edit the tokens only; `npm test` checks WCAG AA contrast for both palettes.
+
+## Backup and restore
+
+Settings -> Backup & Restore creates a single `MyDocs_Backup_<date>.mydocsbackup` (a ZIP with `manifest.json`, `database/mydocs.sqlite` and `documents/*`), saves it with Android's "Save" screen or uploads it to the folder "MyDocs Backups" in the user's Google Drive (scope `drive.file` only), and restores from any file the system picker can open (Replace = exactly the backup, Merge = add what is missing; validated first, one transaction, rolled back on any failure). Backups are not encrypted. Never commit a backup file (`*.mydocsbackup` is git-ignored).
+
+**Google Drive setup (once, in Google Cloud Console):** create a project, enable the Google Drive API, set up the OAuth consent screen with the `https://www.googleapis.com/auth/drive.file` scope (add yourself as a test user while it is in testing), and create an *Android* OAuth client for package `com.alichade.mydocs` and the SHA-1 of the signing keystore (`keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android` for debug builds). No client secret or `google-services.json` goes into the app; without this setup the Drive button reports that sign-in is unavailable and local backups still work.
+
+Useful during development: `adb forward tcp:9222 localabstract:webview_devtools_remote_<pid>` and the DevTools protocol let you run `globalThis.__mydocsBackup` / `__mydocsService` (debug builds only) in the app's WebView.
 
 ## Document size limit
 

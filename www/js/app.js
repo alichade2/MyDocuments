@@ -11,6 +11,10 @@ import { MENU_ITEMS, buildSettingsSections } from './menu.js';
 import { THEME_OPTIONS, loadTheme, saveTheme, applyTheme } from './theme.js';
 import { iconPath, CATEGORY_ICON_CHOICES, DEFAULT_CATEGORY_ICON } from './icons.js';
 import { createAppLock, nativeAuthenticator, previewAuthenticator, lockMessage } from './applock.js';
+import { createBackupService } from './backup.js';
+import { nativeBackupAdapters } from './backup-native.js';
+import { createDriveClient } from './drive.js';
+import { createMockBackup } from './mock-backup.js';
 import { SIZE_LIMIT_OPTIONS_MB, loadSizeLimitMb, saveSizeLimitMb, setSizeLimitMb, getSizeLimitMb, formatSize as formatSizeText } from './sizelimit.js';
 import { t, tn, countLabel, categoryLabel, errorText, LANGUAGES, loadLanguage, saveLanguage, setLanguage, getLanguage, applyStaticTranslations } from './i18n.js';
 
@@ -410,6 +414,7 @@ function wireEvents() {
   $('settings-list').addEventListener('click', (e) => {
     if (e.target.closest('[data-action="theme"]')) openThemeDialog();
     else if (e.target.closest('[data-action="language"]')) openLanguageDialog();
+    else if (e.target.closest('[data-action="backup"]')) openBackupPage();
     else if (e.target.closest('[data-action="app-lock"]')) toggleAppLock();
   });
   $('settings-list').addEventListener('change', (e) => {
@@ -767,7 +772,7 @@ function closeSensitiveDialogs() {
   if ($('name-dialog').open && !saving) closeNameDialog();
   if ($('viewer-dialog').open) $('vw-close').click();
   if ($('cat-dialog').open) closeCategoryDialog();
-  for (const id of ['cdel-dialog', 'theme-dialog', 'lang-dialog', 'lockinfo-dialog']) if ($(id).open) $(id).close();
+  for (const id of ['cdel-dialog', 'theme-dialog', 'lang-dialog', 'lockinfo-dialog', 'bk-ready-dialog', 'bk-restore-dialog']) if ($(id).open) $(id).close();
 }
 
 function applyLockState(locked) {
@@ -1090,6 +1095,294 @@ function openThemeDialog() {
   $('th-options').querySelector('input:checked')?.focus({ preventScroll: true });
 }
 
+/* ---------- Backup & Restore (logic in backup.js / drive.js; this is only the screen) ---------- */
+
+const LAST_BACKUP_KEY = 'mydocs.lastBackup';
+const backupUi = { busy: false, cancel: false, created: null, picked: null, info: null };
+let backup; // createBackupService (device) or the preview stand-in
+let backupFiles; // { scratch, saveToDevice, pickBackup, ... }
+let drive; // Google Drive client
+
+const loadLastBackup = () => { try { return localStorage.getItem(LAST_BACKUP_KEY); } catch { return null; } };
+const formatDateTime = (iso) => new Date(iso).toLocaleString(getLanguage() === 'hi' ? 'hi-IN' : 'en-GB', { dateStyle: 'medium', timeStyle: 'short' });
+
+function renderBackupPage() {
+  const last = loadLastBackup();
+  $('bk-last').textContent = last ? t('bk.last', { date: formatDateTime(last) }) : t('bk.lastNone');
+}
+
+/** Only called after the backup has really been saved or Google Drive has confirmed the upload. */
+function recordBackup() {
+  try { localStorage.setItem(LAST_BACKUP_KEY, new Date().toISOString()); } catch { /* the date is only informational */ }
+  renderBackupPage();
+}
+
+function backupStageText(p) {
+  switch (p.stage) {
+    case 'collect': return t('bk.p.collect');
+    case 'create': return t('bk.p.create', { done: Math.min(p.done + 1, p.total), total: p.total });
+    case 'validate': return t('bk.p.validate');
+    case 'restore': return t('bk.p.restore', { done: p.done, total: p.total });
+    case 'sign-in': return t('bk.p.signin');
+    case 'folder': return t('bk.p.folder');
+    case 'upload': return t('bk.p.upload', { percent: Math.floor((p.done / p.total) * 100) });
+    default: return t('bk.p.prepare');
+  }
+}
+
+function showBackupProgress(text, { cancellable = false } = {}) {
+  $('bkp-text').textContent = text;
+  $('bkp-cancel').hidden = !cancellable;
+  $('bkp-cancel').disabled = false;
+  $('bkp-bar').hidden = true;
+  if (!$('bk-progress-dialog').open) $('bk-progress-dialog').showModal();
+}
+function updateBackupProgress(p) {
+  $('bkp-text').textContent = backupStageText(p);
+  const percent = p.total ? Math.floor(((p.done ?? 0) / p.total) * 100) : null;
+  $('bkp-bar').hidden = percent === null;
+  if (percent !== null) $('bkp-bar').value = percent;
+}
+const closeBackupProgress = () => { if ($('bk-progress-dialog').open) $('bk-progress-dialog').close(); };
+
+function setBackupBusy(on) {
+  backupUi.busy = on;
+  $('bk-create').disabled = on;
+  $('bk-restore').disabled = on;
+}
+
+async function startBackup() {
+  if (backupUi.busy) return;
+  setBackupBusy(true);
+  backupUi.cancel = false;
+  showBackupProgress(t('bk.p.prepare'), { cancellable: true });
+  try {
+    const created = await backup.createBackup({ onProgress: updateBackupProgress, shouldCancel: () => backupUi.cancel });
+    closeBackupProgress();
+    openBackupReady(created);
+  } catch (err) {
+    closeBackupProgress();
+    if (err?.code !== 'BACKUP_CANCELLED') { console.error('MyDocs backup error:', err?.code || err?.name || 'error'); showMessage(errorText(err, 'err.bkFailed')); }
+  } finally {
+    setBackupBusy(false);
+  }
+}
+
+function openBackupReady(created) {
+  backupUi.created = created;
+  $('bkr-file').textContent = t('bk.ready.file', { name: created.fileName, size: formatSizeText(created.size) });
+  $('bkr-summary').textContent = t('bk.ready.summary', { categories: created.summary.categories, documents: created.summary.documents });
+  $('bkr-warn').hidden = !created.missingFiles;
+  if (created.missingFiles) $('bkr-warn').textContent = t('bk.ready.warn', { n: created.missingFiles });
+  setReadyStatus('');
+  $('bkr-device').disabled = false;
+  $('bkr-drive').disabled = false;
+  $('bk-ready-dialog').showModal();
+}
+
+function setReadyStatus(text) {
+  $('bkr-status').textContent = text;
+  $('bkr-status').hidden = !text;
+}
+
+/** Deletes the temporary backup file (the user either has the backup now, or chose to leave without one). */
+async function discardCreatedBackup() {
+  const created = backupUi.created;
+  backupUi.created = null;
+  if (created) await backupFiles.scratch.remove(created.path).catch(() => {});
+}
+
+async function finishBackup(message) {
+  $('bk-ready-dialog').close();
+  await discardCreatedBackup();
+  showMessage(message);
+}
+
+async function saveBackupToDevice() {
+  const created = backupUi.created;
+  if (!created || backupUi.busy) return;
+  setBackupBusy(true);
+  $('bkr-device').disabled = true; $('bkr-drive').disabled = true;
+  try {
+    const saved = await backupFiles.saveToDevice({ path: created.path, fileName: created.fileName });
+    if (saved) { recordBackup(); await finishBackup(`${t('bk.saved')} ${t('bk.done')}`); } else setReadyStatus(t('bk.saveCancelled'));
+  } catch (err) {
+    console.error('MyDocs save error:', err?.code || err?.name || 'error');
+    setReadyStatus(t('bk.saveFailed'));
+  } finally {
+    setBackupBusy(false);
+    if ($('bk-ready-dialog').open) { $('bkr-device').disabled = false; $('bkr-drive').disabled = false; }
+  }
+}
+
+async function uploadBackupToDrive() {
+  const created = backupUi.created;
+  if (!created || backupUi.busy) return;
+  setBackupBusy(true);
+  backupUi.cancel = false;
+  $('bkr-device').disabled = true; $('bkr-drive').disabled = true;
+  setReadyStatus(t('bk.p.signin'));
+  try {
+    const res = await drive.upload({
+      name: created.fileName, size: created.size,
+      readRange: (offset, length) => backupFiles.scratch.read(created.path, offset, length),
+      onProgress: (p) => setReadyStatus(backupStageText(p)),
+      shouldCancel: () => backupUi.cancel,
+    });
+    recordBackup(); // Drive has confirmed the file
+    await finishBackup(`${t('bk.uploaded', { name: res.name, folder: res.folder })} ${t('bk.done')}`);
+  } catch (err) {
+    if (err?.code !== 'DRIVE_CANCELED') console.error('MyDocs Drive error:', err?.code || err?.name || 'error');
+    setReadyStatus(`${errorText(err, 'err.driveFailed')}`); // the local backup is kept, the buttons stay available for a retry
+  } finally {
+    setBackupBusy(false);
+    if ($('bk-ready-dialog').open) { $('bkr-device').disabled = false; $('bkr-drive').disabled = false; }
+  }
+}
+
+function closeBackupReady() {
+  if (backupUi.busy) { backupUi.cancel = true; return; } // an upload in progress is cancelled between chunks
+  if ($('bk-ready-dialog').open) $('bk-ready-dialog').close();
+  discardCreatedBackup();
+}
+
+/* restore */
+
+async function startRestore() {
+  if (backupUi.busy) return;
+  setBackupBusy(true);
+  showBackupProgress(t('bk.p.reading'));
+  try {
+    const picked = await backupFiles.pickBackup(); // system file picker; the file is copied into the cache folder
+    if (!picked) { closeBackupProgress(); return; }
+    let info;
+    try { info = await backup.inspect(picked.path); } catch (err) {
+      closeBackupProgress();
+      await backupFiles.scratch.remove(picked.path).catch(() => {});
+      showMessage(errorText(err, 'err.bkInvalid'));
+      return;
+    }
+    closeBackupProgress();
+    backupUi.picked = picked;
+    backupUi.info = info;
+    openRestoreDialog(picked, info);
+  } catch (err) {
+    closeBackupProgress();
+    console.error('MyDocs restore error:', err?.code || err?.name || 'error');
+    showMessage(t('bk.pickFailed'));
+  } finally {
+    setBackupBusy(false);
+  }
+}
+
+function selectedRestoreMode() {
+  return document.querySelector('input[name="bk-mode"]:checked')?.value ?? 'replace';
+}
+
+function syncRestoreMode() {
+  const mode = selectedRestoreMode();
+  for (const label of document.querySelectorAll('.bk-mode')) label.classList.toggle('selected', label.dataset.mode === mode);
+  $('bks-confirm').textContent = mode === 'merge' ? t('bk.rs.confirmMerge') : t('bk.rs.confirmReplace');
+  $('bks-confirm').classList.toggle('danger-fill', mode === 'replace');
+  $('bks-confirm').classList.toggle('filled', mode === 'merge');
+}
+
+function openRestoreDialog(picked, info) {
+  $('bks-file').textContent = t('bk.rs.file', { name: picked.name });
+  $('bks-created').textContent = t('bk.rs.created', { date: formatDateTime(info.createdAt) });
+  $('bks-summary').textContent = t('bk.rs.summary', { categories: info.categories, custom: info.customCategories, documents: info.documents });
+  $('bks-missing').hidden = !info.withoutFile;
+  if (info.withoutFile) $('bks-missing').textContent = t('bk.rs.missing', { n: info.withoutFile });
+  $('bks-error').hidden = true;
+  document.querySelector('input[name="bk-mode"][value="replace"]').checked = true;
+  $('bks-safety').checked = true;
+  syncRestoreMode();
+  $('bk-restore-dialog').showModal();
+}
+
+function closeRestoreDialog() {
+  if ($('bk-restore-dialog').open) $('bk-restore-dialog').close();
+  const picked = backupUi.picked;
+  backupUi.picked = null;
+  if (picked) backupFiles.scratch.remove(picked.path).catch(() => {});
+}
+
+/** Everything on screen is rebuilt from the restored database (ids may now mean different categories). */
+async function refreshAfterRestore() {
+  selection.clear();
+  tabs.allDirty = true;
+  cards.clear();
+  view.docs.clear();
+  view.categoryId = null;
+  $('dashboard-view').hidden = false;
+  $('category-view').hidden = true;
+  await buildDashboard();
+  renderSettings();
+  updateSelectionUI();
+}
+
+async function runRestore() {
+  const picked = backupUi.picked;
+  if (!picked || backupUi.busy) return;
+  const mode = selectedRestoreMode();
+  const wantsSafety = $('bks-safety').checked;
+  $('bk-restore-dialog').close();
+  setBackupBusy(true);
+  try {
+    if (wantsSafety) { // the current data is saved first; if that does not happen, nothing is restored
+      backupUi.cancel = false;
+      showBackupProgress(t('bk.p.safety'));
+      const safety = await backup.createBackup({ onProgress: updateBackupProgress });
+      closeBackupProgress();
+      let saved = false;
+      try { saved = await backupFiles.saveToDevice({ path: safety.path, fileName: safety.fileName.replace('MyDocs_Backup_', 'MyDocs_SafetyBackup_') }); } finally { await backupFiles.scratch.remove(safety.path).catch(() => {}); }
+      if (!saved) { showMessage(t('bk.rs.safetyCancelled')); return; }
+    }
+    showBackupProgress(t('bk.rs.working'));
+    const result = await backup.restore(picked.path, { mode, onProgress: updateBackupProgress });
+    await refreshAfterRestore();
+    closeBackupProgress();
+    showMessage(mode === 'merge'
+      ? t('bk.rs.doneMerge', { documents: result.addedDocuments, categories: result.addedCategories })
+      : t('bk.rs.doneReplace', { documents: result.documents, categories: result.categories }));
+  } catch (err) {
+    closeBackupProgress();
+    console.error('MyDocs restore error:', err?.code || err?.name || 'error');
+    showMessage(errorText(err, 'err.bkRestoreFailed'));
+  } finally {
+    backupUi.picked = null;
+    await backupFiles.scratch.remove(picked.path).catch(() => {});
+    setBackupBusy(false);
+  }
+}
+
+function wireBackup() {
+  $('bk-create').addEventListener('click', startBackup);
+  $('bk-restore').addEventListener('click', startRestore);
+  $('bkp-cancel').addEventListener('click', () => { backupUi.cancel = true; $('bkp-cancel').disabled = true; });
+  $('bk-progress-dialog').addEventListener('cancel', (e) => e.preventDefault()); // cannot be dismissed while working
+  $('bkr-device').addEventListener('click', saveBackupToDevice);
+  $('bkr-drive').addEventListener('click', uploadBackupToDrive);
+  $('bkr-close').addEventListener('click', closeBackupReady);
+  $('bk-ready-dialog').addEventListener('cancel', (e) => { e.preventDefault(); closeBackupReady(); });
+  $('bks-cancel').addEventListener('click', closeRestoreDialog);
+  $('bk-restore-dialog').addEventListener('cancel', (e) => { e.preventDefault(); closeRestoreDialog(); });
+  $('bks-confirm').addEventListener('click', runRestore);
+  for (const radio of document.querySelectorAll('input[name="bk-mode"]')) radio.addEventListener('change', syncRestoreMode);
+}
+
+/** The settings sub-page: Settings -> Backup & Restore (Back returns to Settings). */
+function openBackupPage() {
+  if (nav.page !== 'settings') return;
+  nav.page = 'backup';
+  $('settings-scroller').hidden = true;
+  $('backup-scroller').hidden = false;
+  $('backup-scroller').scrollTop = 0;
+  $('app-title').textContent = t('bk.title');
+  renderBackupPage();
+  $('page-back').focus({ preventScroll: true });
+}
+
 /* ---------- Language ---------- */
 
 function renderLanguageOptions() {
@@ -1138,6 +1431,7 @@ function refreshLanguageUI() {
   updateSelectionUI();
   if (nav.page === 'categories') refreshManageList();
   if (appLock.locked) { setLockMessage(t('lock.msg'), false); $('lock-unlock').textContent = t('lock.unlock'); }
+  renderBackupPage();
 }
 
 /** Applies and stores the document size limit right away: the next upload or capture is judged against it. */
@@ -1158,7 +1452,7 @@ function setAppLanguage(next) {
 }
 
 /** Drawer pages (Manage Categories, Settings): one page at a time, opened from either tab, Back returns to that tab. */
-const PAGES = { settings: { titleKey: 'menu.settings', scroller: 'settings-scroller' }, categories: { titleKey: 'menu.manageCategories', scroller: 'categories-scroller' } };
+const PAGES = { settings: { titleKey: 'menu.settings', scroller: 'settings-scroller' }, categories: { titleKey: 'menu.manageCategories', scroller: 'categories-scroller' }, backup: { titleKey: 'bk.title', scroller: 'backup-scroller' } };
 
 function openPage(name) {
   if (nav.page === name || motion.busy || allState.busy) return; // repeated taps do nothing
@@ -1184,6 +1478,13 @@ function openSettings() {
 
 /** Back arrow / Android Back on a drawer page: returns to the tab (and scroll position) it was opened from. */
 function pageBack() {
+  if (nav.page === 'backup') { // Backup & Restore sits under Settings
+    nav.page = 'settings';
+    $('backup-scroller').hidden = true;
+    $('settings-scroller').hidden = false;
+    $('app-title').textContent = t('menu.settings');
+    return;
+  }
   closeSettings();
 }
 
@@ -1198,6 +1499,7 @@ async function openManageCategories() {
 function closeSettings() {
   if (nav.page === null) return;
   $('categories-scroller').hidden = true;
+  $('backup-scroller').hidden = true;
   nav.page = null;
   document.body.classList.remove('page-settings');
   $('page-back').hidden = true;
@@ -1225,6 +1527,9 @@ function wireBackButton() {
     if ($('cdel-dialog').open) { if (!catUi.saving) $('cdel-dialog').close(); return; }
     if ($('theme-dialog').open) { $('theme-dialog').close(); return; }
     if ($('lang-dialog').open) { $('lang-dialog').close(); return; }
+    if ($('bk-progress-dialog').open) return; // backup / restore running
+    if ($('bk-ready-dialog').open) { closeBackupReady(); return; }
+    if ($('bk-restore-dialog').open) { closeRestoreDialog(); return; }
     if ($('viewer-dialog').open) { $('vw-close').click(); return; }
     if ($('name-dialog').open) { if (!saving) closeNameDialog(); return; }
     if ($('preview-dialog').open) { releasePending(); $('preview-dialog').close(); return; }
@@ -1239,6 +1544,7 @@ function wireBackButton() {
 async function init() {
   wireEvents();
   wireAppLock();
+  wireBackup();
   // Lock first: with App Lock on, the page is already hidden (lock-init.js) and the system prompt is requested right away.
   if (appLock.start()) setTimeout(promptUnlock, 300);
   if (isNativePlatform()) {
@@ -1248,8 +1554,18 @@ async function init() {
     const { storage, picker, viewer, camera, sharer } = capacitorAdapters(undefined, (fn) => appLock.external(fn));
     service = createDocumentService({ db, storage, picker, viewer, camera, sharer, thumbnailer: createThumbnail });
     await service.reconcile();
+    backupFiles = nativeBackupAdapters(undefined, (fn) => appLock.external(fn));
+    await backupFiles.cleanup(); // temporary backup / restore files left by an earlier run
+    backup = createBackupService({
+      db, storage, scratch: backupFiles.scratch, freeSpace: backupFiles.freeSpace,
+      afterRestore: async () => { await service.reconcile(); await service.rebuildThumbnails(); },
+    });
+    drive = createDriveClient({ authorize: backupFiles.authorizeDrive });
+    globalThis.__mydocsBackup = backup; // device testing aids (not used by the app itself)
+    globalThis.__mydocsService = service;
   } else {
     service = createMockService();
+    ({ backup, native: backupFiles, drive } = createMockBackup());
     globalThis.__mydocsPreview = service; // browser preview only: lets tests inspect the in-memory ZIP
     const b = $('banner');
     b.textContent = t('banner.preview');

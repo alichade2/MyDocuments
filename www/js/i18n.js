@@ -110,6 +110,23 @@ export const ERROR_PATTERNS = [
   [/^Could not capture the photo\. Please try again\.$/, 'err.captureFailed'],
   [/^Too many files for one ZIP archive\.$/, 'err.zipEntries'],
   [/^The selected files are too large for one ZIP archive\.$/, 'err.zipBytes'],
+  [/^This file is not a valid MyDocs backup\.$/, 'err.bkInvalid'],
+  [/^The backup is damaged or incomplete, so it was not restored\. Your current data has not been changed\.$/, 'err.bkCorrupt'],
+  [/^The backup could not be created\. Please try again\.$/, 'err.bkFailed'],
+  [/^The restore failed\. Your existing data has been kept unchanged\.$/, 'err.bkRestoreFailed'],
+  [/^The operation was cancelled\.$/, 'err.bkCancelled'],
+  [/^The backup does not contain a readable database\.$/, 'err.bkNoDb'],
+  [/^This backup was created by a newer version of MyDocs \(backup format (\d+)\)\. Please update MyDocs and try again\.$/, 'err.bkUnsupported', (m) => ({ v: m[1] })],
+  [/^There is not enough free storage to restore this backup \(about (\d+) MB needed\)\. Free up space and try again\.$/, 'err.bkStorage', (m) => ({ mb: m[1] })],
+  [/^Could not reach Google Drive\. Check your internet connection and try again\. Your backup file has been kept\.$/, 'err.driveOffline'],
+  [/^Google Drive sign-in was not completed\. Your backup file has been kept\.$/, 'err.driveAuth'],
+  [/^Google Drive sign-in was cancelled\. Your backup file has been kept\.$/, 'err.driveSignInCancelled'],
+  [/^Permission to use Google Drive was not granted\. Your backup file has been kept\.$/, 'err.driveDenied'],
+  [/^Google Drive sign-in is not available in this build of MyDocs\. Save the backup to your device instead\.$/, 'err.driveUnavailable'],
+  [/^The upload to Google Drive failed\. Your backup file has been kept; you can try again\.$/, 'err.driveFailed'],
+  [/^Google Drive has no free space left for this backup\.$/, 'err.driveQuota'],
+  [/^Google Drive did not confirm the uploaded file\. Please try again\.$/, 'err.driveUnverified'],
+  [/^The upload was cancelled\.$/, 'err.driveCancelled'],
 ];
 
 /** Localised text for an error thrown by the service; unknown messages are returned unchanged (or `fallbackKey`). */

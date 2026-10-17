@@ -24,6 +24,7 @@ export function buildSettingsSections({ version = '', build = '', theme = 'light
     { id: 'documents', title: t('set.documents'), rows: [
       { id: 'size-limit', label: t('set.sizeLimit'), description: t('set.sizeLimitDesc'), icon: 'storage',
         select: { value: sizeLimitMb, options: SIZE_LIMIT_OPTIONS_MB.map((mb) => ({ value: mb, label: `${mb} MB` })) } },
+      { id: 'backup', label: t('set.backup'), description: t('set.backupDesc'), icon: 'backup', action: 'backup' },
     ] },
     { id: 'security', title: t('set.security'), rows: [
       { id: 'app-lock', label: t('set.appLock'), description: t('set.appLockDesc'), icon: 'lock', toggle: true, checked: Boolean(appLock), action: 'app-lock' },

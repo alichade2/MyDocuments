@@ -7,7 +7,8 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        registerPlugin(AppLockPlugin.class); // local plugin: must be registered before super.onCreate
+        registerPlugin(AppLockPlugin.class); // local plugins: must be registered before super.onCreate
+        registerPlugin(BackupPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

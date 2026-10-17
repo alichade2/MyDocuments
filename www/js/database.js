@@ -149,17 +149,43 @@ export function createDatabase(driver) {
     return job;
   }
 
+  /** Runs `fn` after every queued transaction and before the next one, so it sees a stable database. */
+  function exclusive(fn) {
+    const job = queue.then(fn);
+    queue = job.catch(() => {});
+    return job;
+  }
+
   return {
     init() { return (ready ??= migrate().catch((e) => { ready = null; throw e; })); },
     all: (sql, params = []) => driver.all(sql, params),
     run: (sql, params = []) => driver.run(sql, params),
     transaction,
+    exclusive,
+    /**
+     * A consistent copy of the whole database as one SQLite file (VACUUM INTO: includes everything still in the WAL,
+     * does not change the live database). Resolves with { data: base64, size }.
+     */
+    snapshot() {
+      if (!driver.snapshot) throw new Error('This database driver cannot create snapshots.');
+      return exclusive(() => driver.snapshot());
+    },
+    /**
+     * Opens a SQLite file (base64) next to the live database as schema `bk` (read it with `bk.<table>` in queries).
+     * Call detach() when finished. The file is never used as the live database.
+     */
+    async attach(data) {
+      if (!driver.attach) throw new Error('This database driver cannot attach databases.');
+      return driver.attach(data);
+    },
+    /** Makes sure every built-in category exists (also used inside a restore transaction). */
+    reseed: () => seedCategories(driver),
     close: () => driver.close(),
   };
 }
 
 /** Driver backed by @capacitor-community/sqlite (native Android/iOS). */
-export function capacitorSqliteDriver(plugin = globalThis.Capacitor?.Plugins?.CapacitorSQLite) {
+export function capacitorSqliteDriver(plugin = globalThis.Capacitor?.Plugins?.CapacitorSQLite, fs = globalThis.Capacitor?.Plugins?.Filesystem) {
   if (!plugin) throw new Error('CapacitorSQLite plugin is not available (native platform required).');
   const database = DB_NAME;
   return {
@@ -180,6 +206,50 @@ export function capacitorSqliteDriver(plugin = globalThis.Capacitor?.Plugins?.Ca
     rollback: () => plugin.rollbackTransaction({ database }),
     async close() {
       await plugin.closeConnection({ database, readonly: false });
+    },
+    async snapshot() { return nativeFiles(fs).snapshot(plugin, database); },
+    async attach(data) { return nativeFiles(fs).attach(plugin, database, data); },
+  };
+}
+
+/** Temporary SQLite files in the app's cache folder (never the app's real database files). */
+function nativeFiles(fs) {
+  if (!fs) throw new Error('Filesystem plugin is not available.');
+  const dir = 'backup-tmp';
+  const sqlPath = async (name) => {
+    await fs.mkdir({ path: dir, directory: 'CACHE', recursive: true }).catch(() => {});
+    const { uri } = await fs.getUri({ path: `${dir}/${name}`, directory: 'CACHE' });
+    return { rel: `${dir}/${name}`, abs: uri.replace(/^file:\/\//, '') };
+  };
+  const quote = (path) => `'${path.replace(/'/g, "''")}'`;
+  return {
+    async snapshot(plugin, database) {
+      const f = await sqlPath('snapshot.sqlite');
+      await fs.deleteFile({ path: f.rel, directory: 'CACHE' }).catch(() => {});
+      try {
+        await plugin.execute({ database, statements: `VACUUM INTO ${quote(f.abs)};`, transaction: false });
+        const { data } = await fs.readFile({ path: f.rel, directory: 'CACHE' });
+        return { data, size: Math.floor((data.length * 3) / 4) };
+      } finally {
+        await fs.deleteFile({ path: f.rel, directory: 'CACHE' }).catch(() => {});
+      }
+    },
+    async attach(plugin, database, data) {
+      const f = await sqlPath('incoming.sqlite');
+      await fs.writeFile({ path: f.rel, directory: 'CACHE', data, recursive: true });
+      try {
+        await plugin.execute({ database, statements: `ATTACH DATABASE ${quote(f.abs)} AS bk;`, transaction: false });
+      } catch (e) {
+        await fs.deleteFile({ path: f.rel, directory: 'CACHE' }).catch(() => {});
+        throw e;
+      }
+      return {
+        async detach() {
+          try { await plugin.execute({ database, statements: 'DETACH DATABASE bk;', transaction: false }); } finally {
+            await fs.deleteFile({ path: f.rel, directory: 'CACHE' }).catch(() => {});
+          }
+        },
+      };
     },
   };
 }

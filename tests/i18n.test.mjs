@@ -32,7 +32,7 @@ test('English and Hindi tables have exactly the same keys, no empty text and the
 });
 
 test('Hindi strings are really Hindi (Devanagari) apart from names that are intentionally Latin', () => {
-  const allowed = new Set(['lang.code', 'lang.name.en', 'lang.sub.hi']);
+  const allowed = new Set(['lang.code', 'lang.name.en', 'lang.sub.hi', 'bk.ready.file']);
   for (const [key, value] of Object.entries(hi)) if (!allowed.has(key)) assert.match(value, DEVANAGARI, key);
 });
 
@@ -225,4 +225,20 @@ test('localised display never changes stored data: the mock repository keeps Eng
   assert.equal(doc.name, 'Aadhaar Card');
   assert.equal(doc.categoryName, 'Identity Documents'); // data from the repository stays English; only the label is localised
   assert.equal(categoryLabel(doc), 'पहचान संबंधी दस्तावेज़');
+});
+
+test('every backup / restore message has a Hindi translation and English is unchanged', () => {
+  const src = read('www/js/backup.js');
+  const block = src.match(/const MSG = \{([\s\S]*?)\n\};/)[1];
+  const messages = [...block.matchAll(/^\s+\w+: '((?:[^'\\]|\\.)*)',?$/gm)].map((m) => m[1].replace(/\\'/g, "'"));
+  messages.push(
+    'This backup was created by a newer version of MyDocs (backup format 7). Please update MyDocs and try again.',
+    'There is not enough free storage to restore this backup (about 12 MB needed). Free up space and try again.',
+  );
+  assert.ok(messages.length >= 8);
+  for (const m of messages) assert.equal(errorText({ message: m }), m, 'English unchanged');
+  setLanguage('hi');
+  for (const m of messages) assert.match(errorText({ message: m }), DEVANAGARI, m);
+  assert.ok(errorText({ message: messages.at(-2) }).includes('7'));
+  assert.ok(errorText({ message: messages.at(-1) }).includes('12'));
 });

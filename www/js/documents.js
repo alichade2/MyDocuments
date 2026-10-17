@@ -430,6 +430,26 @@ export function createDocumentService({ db, storage, picker, viewer, camera, sha
       await viewer.open(await storage.uri(row.file_path), row.mime_type);
     },
 
+    /** Creates thumbnails for image documents that have none (after a restore: thumbnails are not part of a backup). */
+    async rebuildThumbnails() {
+      if (!thumbnailer) return 0;
+      const rows = await db.all("SELECT id, file_path, file_type FROM documents WHERE thumb_path IS NULL AND is_demo = 0 AND file_path IS NOT NULL;");
+      let made = 0;
+      for (const r of rows) {
+        if (!IMAGE_TYPES.has(r.file_type) || !(await storage.exists(r.file_path))) continue;
+        try {
+          const thumb = await withTimeout(thumbnailer(await storage.readBase64(r.file_path), SUPPORTED_TYPES[r.file_type]), THUMB_TIMEOUT_MS);
+          if (!thumb) continue;
+          const base = r.file_path.slice(DOCS_DIR.length + 1).replace(/\.[^.]+$/, '');
+          const thumbPath = `${THUMBS_DIR}/${base}.jpg`;
+          await storage.write(thumbPath, thumb);
+          await db.transaction(() => db.run('UPDATE documents SET thumb_path = ? WHERE id = ?;', [thumbPath, r.id]));
+          made++;
+        } catch { /* best effort: a missing thumbnail only means the icon is shown */ }
+      }
+      return made;
+    },
+
     /** Removes orphan files (e.g. from interrupted imports) and reports records with missing files. */
     async reconcile() {
       const known = new Set((await db.all('SELECT file_path FROM documents WHERE file_path IS NOT NULL;')).map((r) => r.file_path));

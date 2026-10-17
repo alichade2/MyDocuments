@@ -326,6 +326,31 @@ html[lang="hi"] .btn, html[lang="hi"] .tab-label, html[lang="hi"] .count { line-
 .settings-selectrow { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 64px; padding: 10px 12px 10px 16px; box-sizing: border-box; cursor: pointer; }
 .settings-select { flex: none; min-width: 96px; min-height: 44px; padding: 0 10px; font: inherit; font-weight: 600; color: var(--text); background: var(--card); border: 1.5px solid var(--outline); border-radius: 10px; color-scheme: inherit; }
 .settings-select:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
+/* Backup & Restore */
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); border: 0; white-space: nowrap; }
+.backup-card { background: var(--card); border: 1px solid var(--outline); border-radius: 12px; padding: 16px; margin: 0 0 16px; }
+.backup-card h3 { margin: 0 0 6px; font-size: 1.05rem; }
+.backup-card p { margin: 0 0 12px; color: var(--muted); }
+.backup-card .backup-last { color: var(--text); font-size: .9rem; }
+.backup-btn { width: 100%; min-height: 48px; }
+#bk-progress-dialog { align-items: center; }
+.bk-progress-body { display: flex; flex-direction: column; gap: 8px; min-width: 0; flex: 1; }
+.bk-progress-body p { margin: 0; }
+#bkp-bar { width: 100%; height: 8px; accent-color: var(--primary); }
+#bk-ready-dialog, #bk-restore-dialog { width: min(94vw, 440px); max-height: 92vh; max-height: 92dvh; overflow-y: auto; }
+.bk-file { margin: 0 0 8px; font-weight: 600; word-break: break-word; }
+.bk-status { margin: 8px 0; padding: 10px 12px; border-radius: 10px; background: var(--primary-container); color: var(--text); }
+.bk-actions { display: flex; flex-direction: column; gap: 10px; margin: 12px 0 8px; }
+.bk-actions .btn { width: 100%; min-height: 48px; }
+.bk-note { margin: 4px 0 0; }
+.bk-modes { border: 0; margin: 12px 0; padding: 0; }
+.bk-modes legend { font-size: .85rem; color: var(--muted); padding: 0; margin-bottom: 6px; }
+.bk-mode { display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px; margin: 6px 0; border: 2px solid var(--outline); border-radius: 12px; background: var(--card); cursor: pointer; color: var(--text); font-size: 1rem; }
+.bk-mode.selected { border-color: var(--primary); background: var(--primary-container); }
+.bk-mode input { width: 22px; height: 22px; margin: 2px 0 0; flex: none; accent-color: var(--primary); }
+.bk-mode strong { display: block; }
+.bk-check { display: flex; gap: 12px; align-items: center; margin: 8px 0; color: var(--text); font-size: 1rem; }
+.bk-check input { width: 22px; height: 22px; margin: 0; flex: none; accent-color: var(--primary); }
 /* App Lock: while <html data-locked> every screen is hidden (and made inert by app.js); only the lock screen shows. */
 .lock-screen { display: none; position: fixed; inset: 0; z-index: 1000; background: var(--bg); color: var(--text); align-items: center; justify-content: center; padding: 24px; box-sizing: border-box; }
 html[data-locked] .lock-screen { display: flex; }
