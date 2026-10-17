@@ -38,6 +38,8 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- App Lock: BiometricPrompt (fingerprint/face) with device-credential fallback. No other access to biometric data. -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <!-- Photos are taken with the system camera app: no CAMERA permission is needed; camera hardware is optional. -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 </manifest>

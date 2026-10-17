@@ -12,6 +12,7 @@ Lightweight document manager: vanilla HTML/CSS/ES modules, SQLite metadata, file
 | `www/js/documents.js` | Document service (import, list, rename, delete, open, reconcile) + Capacitor adapters |
 | `www/js/seed.js` | The 12 categories and demo document metadata |
 | `www/js/theme.js`, `www/js/theme-init.js` | Light/Dark theme preference (stored in localStorage, applied before first paint) |
+| `www/js/applock.js`, `www/js/lock-init.js` | App Lock policy (when to ask; never what to compare) and the pre-paint "locked" marker; native side: `android/.../AppLockPlugin.java` (BiometricPrompt) |
 | `www/js/icons.js` | Icon registry: stable key -> SVG path, the 25 category icon choices, folder fallback |
 | `www/js/nav.js`, `www/js/menu.js` | Left navigation drawer component; menu items + Settings structure as data |
 | `www/js/zip.js` | Streaming ZIP writer + safe entry names (no dependencies) |
@@ -79,6 +80,10 @@ The header search icon expands into a field. Results update as you type across a
 ## Themes
 
 Settings -> Appearance -> Theme switches between Light (the default) and Dark. All colours are CSS tokens in `www/css/styles.css`: `:root` is Light, `:root[data-theme="dark"]` overrides them. The choice is the user's, not the device's, and is saved in `localStorage` and applied before the first paint. To retune a theme, edit the tokens only; `npm test` checks WCAG AA contrast for both palettes.
+
+## App Lock
+
+Settings -> Security -> App Lock protects the whole app with Android's own prompt (fingerprint/face where strong, or the device PIN/pattern/password). MyDocs has no password of its own and never handles credentials. The app locks when it is left and on every launch; the camera, file picker, share sheet and viewer do not trigger it. Needs a device screen lock to be turned on. Testing on an emulator: set a screen lock first (Settings -> Security) or `adb shell locksettings set-pin <pin>` and clear it afterwards with `locksettings clear --old <pin>`.
 
 ## Menu and Settings
 

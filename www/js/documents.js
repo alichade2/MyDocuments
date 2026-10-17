@@ -428,7 +428,9 @@ export function createDocumentService({ db, storage, picker, viewer, camera, sha
 }
 
 /** Native adapters (Capacitor). Used only on device. */
-export function capacitorAdapters(plugins = globalThis.Capacitor?.Plugins) {
+export function capacitorAdapters(plugins = globalThis.Capacitor?.Plugins, external = (fn) => fn()) {
+  // `external` wraps every call that opens an Android screen of our own (picker, viewer, share sheet, camera) so
+  // App Lock does not treat leaving the app for that screen as the user walking away.
   const fs = plugins?.Filesystem;
   const directory = 'DATA'; // app-private; not encrypted by the app
   const isMissing = (e) => /not exist|not found|ENOENT/i.test(String(e?.message ?? e));
@@ -467,7 +469,7 @@ export function capacitorAdapters(plugins = globalThis.Capacitor?.Plugins) {
   const picker = plugins?.FilePicker && {
     async pick() {
       try {
-        const { files } = await plugins.FilePicker.pickFiles({ limit: 1, readData: true, types: [...new Set(Object.values(SUPPORTED_TYPES))] });
+        const { files } = await external(() => plugins.FilePicker.pickFiles({ limit: 1, readData: true, types: [...new Set(Object.values(SUPPORTED_TYPES))] }));
         const f = files?.[0];
         return f ? { name: f.name, mimeType: f.mimeType, size: f.size, data: f.data } : null;
       } catch (e) {
@@ -477,14 +479,14 @@ export function capacitorAdapters(plugins = globalThis.Capacitor?.Plugins) {
     },
   };
   const viewer = plugins?.FileViewer && {
-    open: (uri) => plugins.FileViewer.openDocumentFromLocalPath({ path: uri }),
+    open: (uri) => external(() => plugins.FileViewer.openDocumentFromLocalPath({ path: uri })),
   };
   const sharePlugin = plugins?.Share;
   const sharer = sharePlugin && {
     async share({ uri, title }) {
       try {
         // The plugin builds an ACTION_SEND intent with a FileProvider content:// URI, grants temporary read access and shows the chooser.
-        await sharePlugin.share({ files: [uri], title, dialogTitle: 'Share document' });
+        await external(() => sharePlugin.share({ files: [uri], title, dialogTitle: 'Share document' }));
         return true;
       } catch (e) {
         const text = String(e?.message ?? e);
@@ -501,7 +503,7 @@ export function capacitorAdapters(plugins = globalThis.Capacitor?.Plugins) {
     async capture() {
       try {
         // Uses the system camera app (no CAMERA permission is declared, so none is requested).
-        const res = await cam.takePhoto({ quality: 90, targetWidth: 2400, targetHeight: 2400, correctOrientation: true, encodingType: 0, saveToGallery: false });
+        const res = await external(() => cam.takePhoto({ quality: 90, targetWidth: 2400, targetHeight: 2400, correctOrientation: true, encodingType: 0, saveToGallery: false }));
         const url = res.webPath ?? res.uri;
         if (!url) throw new DocumentError('CAPTURE_FAILED', 'The camera did not return a photo.');
         const blob = await (await fetch(globalThis.Capacitor.convertFileSrc(url))).blob();

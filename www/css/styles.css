@@ -310,6 +310,25 @@ dialog#viewer-dialog[open] { display: flex; flex-direction: column; }
 .theme-selected-mark { font-size: .75rem; font-weight: 700; color: var(--primary); flex: none; }
 
 /* ---------- Manage Categories ---------- */
+/* App Lock: while <html data-locked> every screen is hidden (and made inert by app.js); only the lock screen shows. */
+.lock-screen { display: none; position: fixed; inset: 0; z-index: 1000; background: var(--bg); color: var(--text); align-items: center; justify-content: center; padding: 24px; box-sizing: border-box; }
+html[data-locked] .lock-screen { display: flex; }
+html[data-locked] body > :not(.lock-screen) { visibility: hidden; }
+.lock-card { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; max-width: 360px; }
+.lock-card h2 { margin: 4px 0 0; font-size: 1.3rem; }
+.lock-card p { margin: 0 0 8px; color: var(--muted); }
+.lock-badge { width: 72px; height: 72px; border-radius: 50%; background: var(--primary-container); color: var(--primary); display: grid; place-items: center; }
+.lock-badge svg { width: 36px; height: 36px; }
+.lock-card .btn { min-width: 200px; min-height: 48px; }
+/* switch row (Settings > Security) */
+.settings-switch { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 64px; padding: 10px 16px; background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.settings-switch:disabled { opacity: .6; cursor: default; }
+.settings-switch:focus-visible { outline: 3px solid var(--primary); outline-offset: -3px; }
+.switch-track { flex: none; position: relative; width: 52px; height: 32px; border-radius: 16px; border: 2px solid var(--outline); background: var(--card); transition: background .15s, border-color .15s; }
+.switch-track::after { content: ""; position: absolute; top: 50%; left: 5px; width: 16px; height: 16px; margin-top: -8px; border-radius: 50%; background: var(--muted); transition: transform .15s, background .15s, width .15s, height .15s; }
+.settings-switch[aria-checked="true"] .switch-track { background: var(--primary); border-color: var(--primary); }
+.settings-switch[aria-checked="true"] .switch-track::after { width: 22px; height: 22px; margin-top: -11px; background: var(--on-primary); transform: translateX(16px); }
+@media (prefers-reduced-motion: reduce) { .switch-track, .switch-track::after { transition: none; } }
 /* Manage Categories: the Add button stays put, only #cat-scroller scrolls */
 .fixed-page { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .fixed-page[hidden] { display: none; }

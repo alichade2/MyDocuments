@@ -10,6 +10,7 @@ import { createDrawer } from './nav.js';
 import { MENU_ITEMS, buildSettingsSections } from './menu.js';
 import { THEME_OPTIONS, loadTheme, saveTheme, applyTheme } from './theme.js';
 import { iconPath, CATEGORY_ICON_CHOICES, DEFAULT_CATEGORY_ICON } from './icons.js';
+import { createAppLock, nativeAuthenticator, previewAuthenticator, lockMessage } from './applock.js';
 
 const $ = (id) => document.getElementById(id);
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -408,6 +409,7 @@ function wireEvents() {
   $('settings-list').addEventListener('click', (e) => {
     if (e.target.closest('[data-action="theme"]')) openThemeDialog();
     else if (e.target.closest('[data-action="manage-categories"]')) openManageCategories();
+    else if (e.target.closest('[data-action="app-lock"]')) toggleAppLock();
   });
   wireCategories();
   $('th-options').addEventListener('change', (e) => {
@@ -742,6 +744,94 @@ async function shareSelected() {
   }
 }
 
+/* ---------- App Lock (policy in applock.js; the prompt itself is Android's BiometricPrompt) ---------- */
+
+const authenticator = isNativePlatform() ? nativeAuthenticator(globalThis.Capacitor?.Plugins?.AppLock) : previewAuthenticator();
+const appLock = createAppLock({ authenticator, onChange: (locked) => applyLockState(locked) });
+globalThis.__mydocsAppLock = appLock; // browser preview / tests only
+
+/** Closes everything that may show document content (and wipes pending photo data) before the lock screen takes over. */
+function closeSensitiveDialogs() {
+  if (drawer.isOpen()) drawer.close(); // only called from init(), after the drawer exists
+  if ($('preview-dialog').open) { releasePending(); $('preview-dialog').close(); }
+  if ($('name-dialog').open && !saving) closeNameDialog();
+  if ($('viewer-dialog').open) $('vw-close').click();
+  if ($('cat-dialog').open) closeCategoryDialog();
+  for (const id of ['cdel-dialog', 'theme-dialog', 'lockinfo-dialog']) if ($(id).open) $(id).close();
+}
+
+function applyLockState(locked) {
+  document.documentElement.toggleAttribute('data-locked', locked);
+  for (const node of document.body.children) if (node.id !== 'lock-screen') node.inert = locked; // no focus, no screen-reader access
+  if (locked) {
+    closeSensitiveDialogs();
+    setLockMessage('Unlock with your fingerprint, face or screen lock.', false);
+    $('lock-unlock').textContent = 'Unlock';
+  } else {
+    setTimeout(() => $('menu-open')?.focus?.({ preventScroll: true }), 0);
+  }
+}
+
+function setLockMessage(text, needsSettings) {
+  $('lock-msg').textContent = text;
+  $('lock-settings').hidden = !needsSettings;
+}
+
+/** Shows Android's authentication prompt. Failure or cancel keeps the app locked and offers a retry. */
+async function promptUnlock() {
+  if (!appLock.locked || appLock.prompting) return;
+  const res = await appLock.unlock();
+  if (res.ok || res.code === 'BUSY') return;
+  setLockMessage(lockMessage(res.code), res.code === 'NO_SCREEN_LOCK');
+  $('lock-unlock').textContent = 'Try again';
+}
+
+const openSecuritySettings = () => appLock.external(async () => authenticator.openSecuritySettings?.());
+
+let lockToggleBusy = false;
+async function toggleAppLock() {
+  if (lockToggleBusy) return;
+  lockToggleBusy = true;
+  const turningOn = !appLock.enabled;
+  const button = document.querySelector('[data-action="app-lock"]');
+  if (button) button.disabled = true;
+  try {
+    // external(): the system prompt may move the app to the background on older Android versions; that must not lock it.
+    const res = await appLock.external(() => (turningOn ? appLock.enable() : appLock.disable()));
+    if (res.ok) showMessage(turningOn ? 'App Lock is on' : 'App Lock is off');
+    else if (res.code === 'NO_SCREEN_LOCK') {
+      $('li-text').textContent = 'App Lock uses your device screen lock, but none is set up. Set a PIN, pattern or password in Android Settings, then turn App Lock on again.';
+      $('lockinfo-dialog').showModal();
+    } else if (res.code === 'CANCELED') showMessage(turningOn ? 'App Lock was not turned on' : 'App Lock stays on');
+    else showMessage(lockMessage(res.code));
+  } finally {
+    lockToggleBusy = false;
+    renderSettings();
+  }
+}
+
+function wireAppLock() {
+  $('lock-unlock').addEventListener('click', promptUnlock);
+  $('lock-settings').addEventListener('click', openSecuritySettings);
+  $('li-close').addEventListener('click', () => $('lockinfo-dialog').close());
+  $('li-settings').addEventListener('click', () => { $('lockinfo-dialog').close(); openSecuritySettings(); });
+  const app = globalThis.Capacitor?.Plugins?.App;
+  if (isNativePlatform() && app?.addListener) {
+    app.addListener('appStateChange', ({ isActive }) => { // leaving locks, returning asks Android to authenticate
+      if (!isActive) appLock.background(); else promptUnlockAfterReturn();
+    });
+  } else {
+    document.addEventListener('visibilitychange', () => { // browser preview
+      if (document.hidden) appLock.background(); else promptUnlockAfterReturn();
+    });
+  }
+}
+
+async function promptUnlockAfterReturn() {
+  const res = await appLock.foreground();
+  if (!res.ok && res.code !== 'BUSY') { setLockMessage(lockMessage(res.code), res.code === 'NO_SCREEN_LOCK'); $('lock-unlock').textContent = 'Try again'; }
+}
+
 /* ---------- Navigation drawer + Settings page ---------- */
 
 const nav = { page: null, returnTab: 'category', returnScroll: 0 };
@@ -763,10 +853,16 @@ let customCategories = 0;
 
 function renderSettings(info = settingsInfo) {
   settingsInfo = info;
-  const sections = buildSettingsSections({ ...info, theme, customCategories });
+  const sections = buildSettingsSections({ ...info, theme, customCategories, appLock: appLock.enabled });
   $('settings-list').replaceChildren(...sections.map((sec) => el('section', { class: 'settings-section', 'aria-label': sec.title },
     el('h2', {}, sec.title),
     el('ul', { class: 'settings-rows' }, ...sec.rows.map((r) => {
+      if (r.toggle) { // on/off switch row (App Lock)
+        return el('li', {}, el('button', { type: 'button', class: 'settings-switch', role: 'switch', 'data-action': r.action, 'aria-checked': String(r.checked), 'aria-label': `${r.label}. ${r.description ?? ''}` },
+          el('span', { class: 'settings-icon' }, svgIcon(r.icon)),
+          el('span', { class: 'settings-text' }, el('span', { class: 'settings-label' }, r.label), el('span', { class: 'settings-desc' }, r.description ?? '')),
+          el('span', { class: 'switch-track', 'aria-hidden': 'true' })));
+      }
       if (r.action) { // tappable row (icon, title, description, current value)
         const btn = el('button', { type: 'button', class: 'settings-action', 'data-action': r.action, 'aria-label': `${r.label}: ${r.value ?? ''}. ${r.description ?? ''}` },
           el('span', { class: 'settings-icon' }, svgIcon(r.icon)),
@@ -1035,6 +1131,7 @@ function wireBackButton() {
   const appPlugin = globalThis.Capacitor?.Plugins?.App;
   if (!appPlugin) return;
   appPlugin.addListener('backButton', () => {
+    if (appLock.locked) { (appPlugin.minimizeApp ?? appPlugin.exitApp).call(appPlugin); return; } // locked: never navigate behind the lock screen
     if ($('progress-dialog').open) return; // ZIP being prepared
     if (drawer.isOpen()) { drawer.close(); return; }
     if ($('cat-dialog').open) { closeCategoryDialog(); return; }
@@ -1053,11 +1150,14 @@ function wireBackButton() {
 
 async function init() {
   wireEvents();
+  wireAppLock();
+  // Lock first: with App Lock on, the page is already hidden (lock-init.js) and the system prompt is requested right away.
+  if (appLock.start()) setTimeout(promptUnlock, 300);
   if (isNativePlatform()) {
     wireBackButton();
     const db = createDatabase(capacitorSqliteDriver());
     await db.init();
-    const { storage, picker, viewer, camera, sharer } = capacitorAdapters();
+    const { storage, picker, viewer, camera, sharer } = capacitorAdapters(undefined, (fn) => appLock.external(fn));
     service = createDocumentService({ db, storage, picker, viewer, camera, sharer, thumbnailer: createThumbnail });
     await service.reconcile();
   } else {
