@@ -713,3 +713,23 @@ test('shareSelectedAsZip reports a dismissed share sheet and replaces the previo
   await svc.shareSelectedAsZip([d.id]);
   assert.notEqual(storage.shareFile, first);
 });
+
+/* ---------- navigation menu data ---------- */
+import { MENU_ITEMS, buildSettingsSections } from '../www/js/menu.js';
+
+test('menu items: unique ids, label + icon on every entry, Settings present', () => {
+  assert.ok(MENU_ITEMS.length >= 1);
+  assert.equal(new Set(MENU_ITEMS.map((m) => m.id)).size, MENU_ITEMS.length);
+  for (const m of MENU_ITEMS) assert.ok(m.id && m.label && m.icon, JSON.stringify(m));
+  assert.ok(MENU_ITEMS.some((m) => m.id === 'settings' && m.label === 'Settings'));
+});
+
+test('settings sections: structured rows, version formatting with and without build info', () => {
+  const secs = buildSettingsSections({ version: '1.2.3', build: '45' });
+  assert.ok(secs.length >= 1);
+  for (const s of secs) { assert.ok(s.id && s.title && Array.isArray(s.rows)); for (const r of s.rows) assert.ok(r.id && r.label); }
+  const version = (x) => x.flatMap((s) => s.rows).find((r) => r.id === 'version').value;
+  assert.equal(version(secs), '1.2.3 (45)');
+  assert.equal(version(buildSettingsSections({ version: '2.0' })), '2.0');
+  assert.equal(version(buildSettingsSections()), 'Unknown');
+});

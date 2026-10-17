@@ -11,6 +11,7 @@ Lightweight document manager: vanilla HTML/CSS/ES modules, SQLite metadata, file
 | `www/js/database.js` | SQLite driver, schema/migrations (`PRAGMA user_version`), transactions, default categories |
 | `www/js/documents.js` | Document service (import, list, rename, delete, open, reconcile) + Capacitor adapters |
 | `www/js/seed.js` | The 12 categories and demo document metadata |
+| `www/js/nav.js`, `www/js/menu.js` | Left navigation drawer component; menu items + Settings structure as data |
 | `www/js/zip.js` | Streaming ZIP writer + safe entry names (no dependencies) |
 | `www/js/selection.js` | Id-based multi-selection state for the All Documents tab |
 | `www/js/search.js` | Search query normalisation and date parsing (pure functions) |
@@ -72,6 +73,10 @@ The dashboard shows 12 categories (see `seed.js`). Each ships with sample docume
 ## Search
 
 The header search icon expands into a field. Results update as you type across all categories, by name (partial, case-insensitive) or by date (`2026-10-17`, `17/10/2026`, `17 Oct 2026`, ...). Documents with the same name are listed separately with their category and date.
+
+## Menu and Settings
+
+The hamburger icon in the header opens a left navigation drawer. To add a destination: add an entry to `MENU_ITEMS` in `www/js/menu.js` and a handler under `destinations` in `www/js/app.js`. Settings rows come from `buildSettingsSections()` in `menu.js`.
 
 ## All Documents and ZIP sharing
 

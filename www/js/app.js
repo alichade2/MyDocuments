@@ -6,6 +6,8 @@ import { createThumbnail } from './images.js';
 import { prefersReducedMotion, expandCategory, collapseCategory } from './transitions.js';
 import { normalizeQuery } from './search.js';
 import { createSelection } from './selection.js';
+import { createDrawer } from './nav.js';
+import { MENU_ITEMS, buildSettingsSections } from './menu.js';
 
 const $ = (id) => document.getElementById(id);
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -30,6 +32,7 @@ const ICONS = {
   edit: 'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25ZM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83Z',
   share: 'M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 1 0-3-3c0 .24.04.47.09.7L8.04 9.81A2.99 2.99 0 0 0 6 9a3 3 0 1 0 0 6c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65a2.92 2.92 0 1 0 2.92-2.92Z',
   delete: 'M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12ZM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4Z',
+  settings: 'M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58ZM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6Z',
   chevron: 'M9 5.6 15.4 12 9 18.4 10.4 20l8-8-8-8L9 5.6Z',
 };
 const FILE_TYPES = {
@@ -419,6 +422,8 @@ function handleDocAction(e) {
 
 function wireEvents() {
   wireSearch();
+  $('page-back').addEventListener('click', closeSettings);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && nav.page && !drawer.isOpen() && !document.querySelector('dialog[open]')) closeSettings(); });
   wireAllDocuments();
   // One delegated listener per container; nothing is re-registered when views change.
   $('categories').addEventListener('click', (e) => {
@@ -621,7 +626,7 @@ const selection = createSelection();
 const allState = { groups: new Map(), busy: false }; // categoryId -> { ids: [], header, rows: Map(id -> row) }
 
 function switchTab(name) {
-  if (tabs.current === name || motion.busy || allState.busy) return;
+  if (tabs.current === name || motion.busy || allState.busy || nav.page) return;
   if (search.active) closeSearch();
   const from = tabs.current;
   tabs.scroll[from] = $(from === 'all' ? 'all-scroller' : 'scroller').scrollTop; // hidden scrollers lose their offset
@@ -744,16 +749,70 @@ async function shareSelected() {
   }
 }
 
+/* ---------- Navigation drawer + Settings page ---------- */
+
+const nav = { page: null, returnTab: 'category', returnScroll: 0 };
+const scrollerOf = (tab) => $(tab === 'all' ? 'all-scroller' : 'scroller');
+/** Drawer destinations by menu item id; add an entry here (and in menu.js) for new screens. */
+const destinations = { settings: () => openSettings() };
+
+const drawer = createDrawer({
+  drawer: $('drawer'), scrim: $('drawer-scrim'), list: $('drawer-items'), openButton: $('menu-open'),
+  background: [$('app-bar'), $('scroller'), $('all-scroller'), $('settings-scroller'), document.querySelector('.tab-bar')],
+  items: MENU_ITEMS, renderIcon: (name) => svgIcon(name),
+  isBlocked: () => motion.busy || allState.busy || nav.page !== null,
+  onSelect: (id) => destinations[id]?.(),
+});
+
+function renderSettings(info = {}) {
+  $('settings-list').replaceChildren(...buildSettingsSections(info).map((sec) => el('section', { class: 'settings-section', 'aria-label': sec.title },
+    el('h2', {}, sec.title),
+    el('ul', { class: 'settings-rows' }, ...sec.rows.map((r) => el('li', { class: 'settings-row' },
+      el('span', { class: 'settings-label' }, r.label), r.value ? el('span', { class: 'settings-value' }, r.value) : document.createTextNode('')))))));
+}
+
+function openSettings() {
+  if (nav.page === 'settings' || motion.busy || allState.busy) return; // repeated taps do nothing
+  if (search.active) closeSearch();
+  nav.page = 'settings';
+  nav.returnTab = tabs.current;
+  nav.returnScroll = scrollerOf(tabs.current).scrollTop;
+  scrollerOf(tabs.current).hidden = true;
+  $('settings-scroller').hidden = false;
+  $('settings-scroller').scrollTop = 0;
+  document.body.classList.add('page-settings');
+  $('page-back').hidden = false;
+  $('app-title').textContent = 'Settings';
+  drawer.setActive('settings');
+  $('page-back').focus({ preventScroll: true });
+}
+
+function closeSettings() {
+  if (nav.page === null) return;
+  nav.page = null;
+  document.body.classList.remove('page-settings');
+  $('page-back').hidden = true;
+  $('settings-scroller').hidden = true;
+  const back = scrollerOf(nav.returnTab);
+  back.hidden = false;
+  back.scrollTop = nav.returnScroll; // same screen, same scroll position as before
+  $('app-title').textContent = 'MyDocs';
+  drawer.setActive(null);
+  $('menu-open').focus({ preventScroll: true });
+}
+
 /** Capacitor 8 does not handle the system Back button itself: dialogs first, then category -> dashboard, then exit. */
 function wireBackButton() {
   const appPlugin = globalThis.Capacitor?.Plugins?.App;
   if (!appPlugin) return;
   appPlugin.addListener('backButton', () => {
     if ($('progress-dialog').open) return; // ZIP being prepared
+    if (drawer.isOpen()) { drawer.close(); return; }
     if ($('viewer-dialog').open) { $('vw-close').click(); return; }
     if ($('name-dialog').open) { if (!saving) closeNameDialog(); return; }
     if ($('preview-dialog').open) { releasePending(); $('preview-dialog').close(); return; }
     if (search.active) { closeSearch(); return; }
+    if (nav.page) { closeSettings(); return; }
     if (tabs.current === 'all') { if (selection.size) { selection.clear(); updateSelectionUI(); } else switchTab('category'); return; }
     if (view.categoryId != null) { goBack(); return; }
     appPlugin.exitApp();
@@ -776,6 +835,8 @@ async function init() {
     b.textContent = 'Browser preview: sample data from an in-memory mock, nothing is saved. Run the Android app for SQLite storage.';
     b.hidden = false;
   }
+  renderSettings();
+  globalThis.Capacitor?.Plugins?.App?.getInfo?.().then((info) => renderSettings({ version: info.version, build: info.build })).catch(() => {});
   await buildDashboard();
 }
 

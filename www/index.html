@@ -10,9 +10,15 @@
 </head>
 <body>
   <header class="app-bar" id="app-bar">
+    <button type="button" class="hdr-btn" id="menu-open" aria-label="Open navigation menu" aria-expanded="false" aria-controls="drawer">
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M3 18h18v-2H3v2Zm0-5h18v-2H3v2Zm0-7v2h18V6H3Z"/></svg>
+    </button>
+    <button type="button" class="hdr-btn" id="page-back" aria-label="Back" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20 11H7.8l5.6-5.6L12 4l-8 8 8 8 1.4-1.4L7.8 13H20v-2Z"/></svg>
+    </button>
     <div class="brand">
       <svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M6 2h9l5 5v15H6V2Zm8 1.5V8h4.5L14 3.5ZM9 12h8v1.5H9V12Zm0 3h8v1.5H9V15Z"/></svg>
-      <h1>MyDocs</h1>
+      <h1 id="app-title">MyDocs</h1>
     </div>
     <button type="button" class="share-files-btn" id="share-files" aria-label="Share selected files as a ZIP" hidden>
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 1 0-3-3c0 .24.04.47.09.7L8.04 9.81A2.99 2.99 0 0 0 6 9a3 3 0 1 0 0 6c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65a2.92 2.92 0 1 0 2.92-2.92Z"/></svg>
@@ -84,6 +90,14 @@
     </main>
   </div>
 
+  <div id="settings-scroller" class="scroller" hidden>
+    <main>
+      <section id="settings-view" aria-label="Settings">
+        <div id="settings-list"></div>
+      </section>
+    </main>
+  </div>
+
   <nav class="tab-bar" aria-label="Main sections">
     <button type="button" class="tab active" id="tab-category" data-tab="category" aria-current="page">
       <span class="tab-icon"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M3 3h8v8H3V3Zm10 0h8v8h-8V3ZM3 13h8v8H3v-8Zm10 0h8v8h-8v-8Z"/></svg></span>
@@ -128,6 +142,18 @@
     </div>
     <img id="vw-img" alt="">
   </dialog>
+
+  <div id="drawer-scrim" class="drawer-scrim" hidden></div>
+  <aside id="drawer" class="drawer" role="dialog" aria-modal="true" aria-label="Navigation menu" hidden>
+    <div class="drawer-head">
+      <span class="drawer-logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M6 2h9l5 5v15H6V2Zm8 1.5V8h4.5L14 3.5ZM9 12h8v1.5H9V12Zm0 3h8v1.5H9V15Z"/></svg></span>
+      <div class="drawer-titles">
+        <p class="drawer-name">MyDocs</p>
+        <p class="drawer-sub">Your personal document manager</p>
+      </div>
+    </div>
+    <nav aria-label="Menu"><ul id="drawer-items" class="drawer-items"></ul></nav>
+  </aside>
 
   <dialog id="progress-dialog" class="progress-dialog" aria-labelledby="pg-text">
     <span class="spinner" aria-hidden="true"></span>
