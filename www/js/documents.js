@@ -2,6 +2,7 @@
 // Storage / picker / viewer are injected adapters so no native API reaches the UI.
 
 export const DOCS_DIR = 'documents';
+const SHARE_DIR = 'share';
 export const THUMBS_DIR = 'thumbnails'; // outside DOCS_DIR so reconcile can sweep each independently
 export const IMAGE_TYPES = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif']);
 export const MAX_FILE_BYTES = 25 * 1024 * 1024;
@@ -43,6 +44,16 @@ export function suggestName(filename) {
   return base.slice(0, MAX_NAME_LENGTH);
 }
 
+/** File name for a shared copy: the document's display name made safe for file systems, plus its real extension. */
+export function shareFileName(displayName, ext) {
+  const base = String(displayName ?? '')
+    .replace(/[\u0000-\u001f<>:"/\\|?*]/g, ' ')
+    .replace(/\s+/g, '_')
+    .replace(/^[._]+|[._]+$/g, '')
+    .slice(0, 80) || 'document';
+  return `${base}.${ext}`;
+}
+
 export function validateName(name) {
   const trimmed = String(name ?? '').replace(/\s+/g, ' ').trim();
   if (!trimmed) throw new DocumentError('INVALID_NAME', 'Document name cannot be empty.');
@@ -65,9 +76,10 @@ function toRecord(r) {
  * @param {object} [deps.picker] { pick() -> {name, mimeType, size, data(base64)} | null }
  * @param {object} [deps.viewer] { open(uri, mimeType) }
  * @param {object} [deps.camera] { capture() -> {mimeType, data(base64)} | null } (throws DocumentError on denial/unavailable)
+ * @param {object} [deps.sharer] { share({uri, title}) -> true | false(cancelled) }  (throws DocumentError on failure)
  * @param {Function} [deps.thumbnailer] async (base64, mimeType) -> base64 JPEG thumbnail | null
  */
-export function createDocumentService({ db, storage, picker, viewer, camera, thumbnailer, now = () => new Date().toISOString(), uuid = () => crypto.randomUUID() }) {
+export function createDocumentService({ db, storage, picker, viewer, camera, sharer, thumbnailer, now = () => new Date().toISOString(), uuid = () => crypto.randomUUID() }) {
   async function requireCategory(categoryId) {
     const rows = await db.all('SELECT id FROM categories WHERE id = ?;', [categoryId]);
     if (!rows.length) throw new DocumentError('INVALID_CATEGORY', 'Unknown category.');
@@ -158,6 +170,25 @@ export function createDocumentService({ db, storage, picker, viewer, camera, thu
       return storage.src(row.file_path);
     },
 
+    /**
+     * Opens the system share sheet with the document file attached. A temporary copy named after the
+     * document is staged in the cache (replacing any previous one); the stored original is never touched.
+     * Returns true when the share sheet was used, false when the user cancelled.
+     */
+    async shareDocument(id) {
+      const row = await getRow(id);
+      if (row.is_demo === 1) throw new DocumentError('DEMO_DOCUMENT', 'This is sample document data, so there is no file to share. Import a real document first.');
+      if (!sharer || !storage.stageForShare) throw new DocumentError('NO_SHARE', 'Sharing is only available in the Android app.');
+      if (!row.file_path || !(await storage.exists(row.file_path))) {
+        throw new DocumentError('FILE_MISSING', 'The file for this document is missing from storage, so it cannot be shared.');
+      }
+      let uri;
+      try { uri = await storage.stageForShare(row.file_path, shareFileName(row.name, row.file_type)); } catch {
+        throw new DocumentError('SHARE_FAILED', 'Could not prepare the file for sharing. Please try again.');
+      }
+      return sharer.share({ uri, title: row.name });
+    },
+
     async importFromPicker(categoryId) {
       if (!picker) throw new DocumentError('NO_PICKER', 'File picking is not available on this platform.');
       const file = await picker.pick();
@@ -195,6 +226,7 @@ export function createDocumentService({ db, storage, picker, viewer, camera, thu
         const path = `${DOCS_DIR}/${f}`;
         if (!known.has(path)) { await storage.remove(path).catch(() => {}); orphansRemoved++; }
       }
+      await storage.clearShareCache?.().catch(() => {}); // drop the temporary copy from the last share
       const knownThumbs = new Set((await db.all('SELECT thumb_path FROM documents WHERE thumb_path IS NOT NULL;')).map((r) => r.thumb_path));
       for (const f of await storage.list(THUMBS_DIR)) {
         const path = `${THUMBS_DIR}/${f}`;
@@ -223,6 +255,17 @@ export function capacitorAdapters(plugins = globalThis.Capacitor?.Plugins) {
     },
     async uri(path) { return (await fs.getUri({ path, directory })).uri; },
     async src(path) { return globalThis.Capacitor.convertFileSrc(await storage.uri(path)); },
+    async clearShareCache() {
+      try { await fs.rmdir({ path: SHARE_DIR, directory: 'CACHE', recursive: true }); } catch (e) { if (!isMissing(e)) throw e; }
+    },
+    /** Copies a stored file to cache/share/<fileName> (one temporary copy at a time) and returns its file URI. */
+    async stageForShare(path, fileName) {
+      await storage.clearShareCache();
+      await fs.mkdir({ path: SHARE_DIR, directory: 'CACHE', recursive: true });
+      const to = `${SHARE_DIR}/${fileName}`;
+      await fs.copy({ from: path, directory, to, toDirectory: 'CACHE' });
+      return (await fs.getUri({ path: to, directory: 'CACHE' })).uri;
+    },
   };
   const picker = plugins?.FilePicker && {
     async pick() {
@@ -238,6 +281,23 @@ export function capacitorAdapters(plugins = globalThis.Capacitor?.Plugins) {
   };
   const viewer = plugins?.FileViewer && {
     open: (uri) => plugins.FileViewer.openDocumentFromLocalPath({ path: uri }),
+  };
+  const sharePlugin = plugins?.Share;
+  const sharer = sharePlugin && {
+    async share({ uri, title }) {
+      try {
+        // The plugin builds an ACTION_SEND intent with a FileProvider content:// URI, grants temporary read access and shows the chooser.
+        await sharePlugin.share({ files: [uri], title, dialogTitle: 'Share document' });
+        return true;
+      } catch (e) {
+        const text = String(e?.message ?? e);
+        if (/cancel/i.test(text)) return false;
+        if (/in progress/i.test(text)) return false; // a share sheet is already open
+        if (/No Activity found|ActivityNotFound/i.test(text)) throw new DocumentError('NO_SHARE_TARGET', 'No app on this device can receive this file.');
+        if (/Failed to find configured root|fileprovider|FileProvider/i.test(text)) throw new DocumentError('SHARE_CONFIG', 'Sharing is not set up correctly for this file.');
+        throw new DocumentError('SHARE_FAILED', 'Could not open the share sheet. Please try again.');
+      }
+    },
   };
   const cam = plugins?.Camera;
   const camera = cam && {
@@ -265,5 +325,5 @@ export function capacitorAdapters(plugins = globalThis.Capacitor?.Plugins) {
       }
     },
   };
-  return { storage, picker, viewer, camera };
+  return { storage, picker, viewer, camera, sharer };
 }

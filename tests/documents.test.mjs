@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { createDatabase, DEFAULT_CATEGORIES, SCHEMA_VERSION } from '../www/js/database.js';
-import { createDocumentService, DocumentError, DOCS_DIR, THUMBS_DIR, DEMO_MESSAGE, suggestName } from '../www/js/documents.js';
+import { createDocumentService, DocumentError, DOCS_DIR, THUMBS_DIR, DEMO_MESSAGE, suggestName, shareFileName } from '../www/js/documents.js';
 import { CATEGORIES } from '../www/js/seed.js';
 import { createMockService } from '../www/js/mock.js';
 
@@ -32,6 +32,9 @@ function memStorage() {
     async exists(p) { return files.has(p); },
     async list(dir) { return [...files.keys()].filter((k) => k.startsWith(`${dir}/`)).map((k) => k.slice(dir.length + 1)); },
     async uri(p) { return `file:///private/${p}`; },
+    staged: [],
+    async clearShareCache() { this.staged = []; },
+    async stageForShare(p, name) { this.staged = [{ from: p, name }]; return `file:///cache/share/${name}`; },
     async src(p) { return `https://localhost/_capacitor_file_/private/${p}`; },
   };
 }
@@ -395,4 +398,65 @@ test('v2 database upgrades to v3 with thumb_path and keeps data', async () => {
   assert.equal(driver.sqlite.prepare('PRAGMA user_version').get().user_version, 3);
   assert.equal(driver.sqlite.prepare('SELECT COUNT(*) c FROM documents').get().c, 58);
   assert.ok(driver.sqlite.prepare('PRAGMA table_info(documents)').all().some((c) => c.name === 'thumb_path'));
+});
+
+test('shareFileName builds a safe, meaningful file name with the real extension', () => {
+  assert.equal(shareFileName('My Aadhaar Card', 'pdf'), 'My_Aadhaar_Card.pdf');
+  assert.equal(shareFileName('a/b\\c:d*e?f"g<h>i|j', 'jpg'), 'a_b_c_d_e_f_g_h_i_j.jpg');
+  assert.equal(shareFileName('  ..hidden..  ', 'png'), 'hidden.png');
+  assert.equal(shareFileName('???', 'pdf'), 'document.pdf');
+  assert.equal(shareFileName('x'.repeat(200), 'pdf').length, 84);
+});
+
+test('shareDocument shares a staged copy named after the document and leaves the original untouched', async () => {
+  const shared = [];
+  const { svc, storage } = await setup({ sharer: { share: async (a) => { shared.push(a); return true; } } });
+  const doc = await svc.importFile(2, pdf('scan.pdf'), 'Degree Certificate');
+  const before = [...storage.files.entries()];
+  assert.equal(await svc.shareDocument(doc.id), true);
+  assert.deepEqual(shared, [{ uri: 'file:///cache/share/Degree_Certificate.pdf', title: 'Degree Certificate' }]);
+  assert.deepEqual(storage.staged, [{ from: doc.filePath, name: 'Degree_Certificate.pdf' }]);
+  assert.deepEqual([...storage.files.entries()], before);
+  assert.equal((await svc.get(doc.id)).name, 'Degree Certificate');
+  // a second share replaces the single staged copy instead of piling up duplicates
+  const img = await svc.importFile(2, jpeg(), 'Receipt Photo');
+  await svc.shareDocument(img.id);
+  assert.equal(storage.staged.length, 1);
+  assert.equal(storage.staged[0].name, 'Receipt_Photo.jpg');
+});
+
+test('shareDocument reports cancel, missing files, demo docs, no sharer and failures', async () => {
+  const cancelled = await setup({ sharer: { share: async () => false } });
+  const d1 = await cancelled.svc.importFile(1, pdf(), 'A');
+  assert.equal(await cancelled.svc.shareDocument(d1.id), false);
+
+  const { svc, storage } = await setup({ sharer: { share: async () => true } });
+  const doc = await svc.importFile(1, pdf(), 'B');
+  storage.files.delete(doc.filePath);
+  await assert.rejects(svc.shareDocument(doc.id), { code: 'FILE_MISSING' });
+  const [demo] = await svc.list(1);
+  await assert.rejects(svc.shareDocument(demo.id), { code: 'DEMO_DOCUMENT' });
+  await assert.rejects(svc.shareDocument(9999), { code: 'NOT_FOUND' });
+
+  const none = await setup();
+  const d2 = await none.svc.importFile(1, pdf(), 'C');
+  await assert.rejects(none.svc.shareDocument(d2.id), { code: 'NO_SHARE' });
+
+  const failing = await setup({ sharer: { share: async () => { throw new DocumentError('NO_SHARE_TARGET', 'No app'); } } });
+  const d3 = await failing.svc.importFile(1, pdf(), 'D');
+  await assert.rejects(failing.svc.shareDocument(d3.id), { code: 'NO_SHARE_TARGET' });
+
+  const brokenStage = await setup({ sharer: { share: async () => true } });
+  brokenStage.storage.stageForShare = async () => { throw new Error('disk full'); };
+  const d4 = await brokenStage.svc.importFile(1, pdf(), 'E');
+  await assert.rejects(brokenStage.svc.shareDocument(d4.id), { code: 'SHARE_FAILED' });
+});
+
+test('reconcile clears the temporary share copy', async () => {
+  const { svc, storage } = await setup({ sharer: { share: async () => true } });
+  const doc = await svc.importFile(1, pdf(), 'F');
+  await svc.shareDocument(doc.id);
+  assert.equal(storage.staged.length, 1);
+  await svc.reconcile();
+  assert.equal(storage.staged.length, 0);
 });

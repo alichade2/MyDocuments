@@ -25,6 +25,9 @@ const ICONS = {
   plane: 'M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5Z',
   folder: 'M4 4h6l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z',
   image: 'M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2ZM8.5 13.5l2.5 3 3.5-4.5 4.5 6H5l3.5-4.5Z',
+  edit: 'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25ZM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83Z',
+  share: 'M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 1 0-3-3c0 .24.04.47.09.7L8.04 9.81A2.99 2.99 0 0 0 6 9a3 3 0 1 0 0 6c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65a2.92 2.92 0 1 0 2.92-2.92Z',
+  delete: 'M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12ZM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4Z',
   chevron: 'M9 5.6 15.4 12 9 18.4 10.4 20l8-8-8-8L9 5.6Z',
 };
 const FILE_TYPES = {
@@ -118,6 +121,12 @@ async function buildDashboard() {
 
 /* ---------- Category view ---------- */
 
+function actionButton(action, icon, label, extraClass = '') {
+  const b = el('button', { type: 'button', class: `icon-btn ${extraClass}`.trim(), 'data-action': action, 'aria-label': label, title: label.split(' ')[0] });
+  b.append(svgIcon(icon));
+  return b;
+}
+
 function renderDocCard(doc) {
   const type = FILE_TYPES[doc.fileType] ?? { cls: 't-other', label: (doc.fileType || '?').slice(0, 3) };
   const iconEl = el('span', { class: `card-icon ${type.cls}` });
@@ -138,8 +147,9 @@ function renderDocCard(doc) {
   if (doc.missing) main.append(el('span', { class: 'card-warn' }, 'File missing'));
   return el('article', { class: `card${doc.missing ? ' missing' : ''}`, 'data-doc-id': String(doc.id) }, main,
     el('div', { class: 'card-actions' },
-      el('button', { type: 'button', 'data-action': 'rename' }, 'Rename'),
-      el('button', { type: 'button', class: 'danger', 'data-action': 'delete' }, 'Delete')));
+      actionButton('rename', 'edit', `Rename ${doc.name}`),
+      actionButton('share', 'share', `Share ${doc.name}`),
+      actionButton('delete', 'delete', `Delete ${doc.name}`, 'danger')));
 }
 
 function renderCategoryView() {
@@ -364,6 +374,13 @@ async function viewImage(doc) {
   });
 }
 
+let sharing = false;
+function shareDoc(doc) {
+  if (sharing) return; // ignore double taps while the share sheet is opening
+  sharing = true;
+  guarded(() => service.shareDocument(doc.id)).finally(() => { sharing = false; });
+}
+
 function handleDocAction(e) {
   const btn = e.target.closest('[data-action]');
   const cardEl = btn?.closest('[data-doc-id]');
@@ -380,6 +397,8 @@ function handleDocAction(e) {
       title: 'Rename document', saveLabel: 'Save', initial: doc.name,
       onSave: async (name) => { await service.rename(doc.id, name); await reloadCategory(doc.categoryId); return 'Document renamed'; },
     });
+  } else if (action === 'share') {
+    shareDoc(doc);
   } else if (action === 'delete') {
     guarded(async () => {
       const msg = doc.isDemo ? `Remove sample document "${doc.name}"?` : `Delete "${doc.name}"? This removes the stored file too.`;
@@ -430,8 +449,8 @@ async function init() {
     wireBackButton();
     const db = createDatabase(capacitorSqliteDriver());
     await db.init();
-    const { storage, picker, viewer, camera } = capacitorAdapters();
-    service = createDocumentService({ db, storage, picker, viewer, camera, thumbnailer: createThumbnail });
+    const { storage, picker, viewer, camera, sharer } = capacitorAdapters();
+    service = createDocumentService({ db, storage, picker, viewer, camera, sharer, thumbnailer: createThumbnail });
     await service.reconcile();
   } else {
     service = createMockService();

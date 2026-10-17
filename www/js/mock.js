@@ -59,6 +59,11 @@ export function createMockService() {
       if (d?.isDemo) throw new DocumentError('DEMO_DOCUMENT', DEMO_MESSAGE);
       return full.get(id);
     },
+    shareDocument: async (id) => {
+      const d = docs.find((x) => x.id === id);
+      if (d?.isDemo) throw new DocumentError('DEMO_DOCUMENT', 'This is sample document data, so there is no file to share. Import a real document first.');
+      throw new DocumentError('NO_SHARE', 'Sharing is only available in the Android app.');
+    },
     rename: async (id, name) => {
       const d = docs.find((x) => x.id === id);
       d.name = validateName(name);
