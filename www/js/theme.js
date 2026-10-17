@@ -5,8 +5,9 @@ export const THEME_KEY = 'mydocs.theme'; // also read by theme-init.js before fi
 export const DEFAULT_THEME = 'light';
 
 export const THEME_OPTIONS = [
-  { id: 'light', label: 'Light', icon: 'sun', description: 'A clean and bright appearance' },
-  { id: 'dark', label: 'Dark', icon: 'moon', description: 'Easy on the eyes in low-light environments' },
+  // label/description are the English defaults; the dialog shows t(labelKey) / t(descKey)
+  { id: 'light', label: 'Light', labelKey: 'theme.light', icon: 'sun', description: 'A clean and bright appearance', descKey: 'theme.lightDesc' },
+  { id: 'dark', label: 'Dark', labelKey: 'theme.dark', icon: 'moon', description: 'Easy on the eyes in low-light environments', descKey: 'theme.darkDesc' },
 ];
 
 export const normalizeTheme = (value) => (value === 'dark' ? 'dark' : DEFAULT_THEME);

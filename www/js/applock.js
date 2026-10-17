@@ -6,7 +6,9 @@
 //   killed or the WebView reloads), becomes false only after the system confirms authentication, and goes back to
 //   true when the app is left (see background()).
 
-export const APP_LOCK_KEY = 'mydocs.appLock'; // also read by lock-init.js before first paint
+import { t } from './i18n.js';
+
+export const APP_LOCK_KEY ='mydocs.appLock'; // also read by lock-init.js before first paint
 /** After one of our own system screens (camera, file picker, share sheet, viewer) the app may leave/return without locking. */
 export const EXTERNAL_GRACE_MS = 3000;
 
@@ -20,7 +22,8 @@ export const LOCK_MESSAGES = {
   ERROR: 'Authentication failed. Please try again.',
 };
 
-export const lockMessage = (code) => LOCK_MESSAGES[code] ?? LOCK_MESSAGES.ERROR;
+/** User-facing text for a result code, in the current language (LOCK_MESSAGES are the English defaults). */
+export const lockMessage = (code) => t(`lockmsg.${Object.hasOwn(LOCK_MESSAGES, code) ? code : 'ERROR'}`);
 
 export function loadAppLockEnabled(storage = globalThis.localStorage) {
   try { return storage?.getItem(APP_LOCK_KEY) === '1'; } catch { return false; }
@@ -95,7 +98,7 @@ export function createAppLock({ authenticator, storage = globalThis.localStorage
     /** Asks Android to authenticate; unlocks only on a confirmed success. */
     async unlock() {
       if (!state.enabled || !state.locked) return { ok: true };
-      const res = await prompt({ title: 'Unlock MyDocs', subtitle: 'Use your fingerprint, face or screen lock' });
+      const res = await prompt({ title: t('auth.unlockTitle'), subtitle: t('auth.unlockSubtitle') });
       if (res.ok) { state.expectedLeave = false; setLocked(false); return { ok: true }; }
       return { ok: false, code: res.code ?? 'ERROR' };
     },
@@ -126,7 +129,7 @@ export function createAppLock({ authenticator, storage = globalThis.localStorage
       const st = await authenticator.status();
       if (!st?.secure) return { ok: false, code: 'NO_SCREEN_LOCK' };
       if (!st.available) return { ok: false, code: 'NOT_AVAILABLE' };
-      const res = await prompt({ title: 'Turn on App Lock', subtitle: 'Confirm it is you' });
+      const res = await prompt({ title: t('auth.enableTitle'), subtitle: t('auth.confirm') });
       if (!res.ok) return { ok: false, code: res.code ?? 'ERROR' };
       if (!saveAppLockEnabled(true, storage)) return { ok: false, code: 'SAVE_FAILED' };
       state.enabled = true;
@@ -139,7 +142,7 @@ export function createAppLock({ authenticator, storage = globalThis.localStorage
     async disable() {
       if (!state.enabled) return { ok: true };
       if (state.locked) return { ok: false, code: 'CANCELED' }; // the setting is unreachable while locked
-      const res = await prompt({ title: 'Turn off App Lock', subtitle: 'Confirm it is you' });
+      const res = await prompt({ title: t('auth.disableTitle'), subtitle: t('auth.confirm') });
       if (!res.ok) return { ok: false, code: res.code ?? 'ERROR' };
       if (!saveAppLockEnabled(false, storage)) return { ok: false, code: 'SAVE_FAILED' };
       state.enabled = false;

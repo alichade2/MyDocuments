@@ -204,10 +204,10 @@ export function createDocumentService({ db, storage, picker, viewer, camera, sha
     /** Every document with its category (ordered by category, then name) - no per-file checks, for the All Documents list. */
     async listAll() {
       const rows = await db.all(
-        `SELECT d.*, c.name AS category_name, c.sort_order AS category_order
+        `SELECT d.*, c.name AS category_name, c.slug AS category_slug, c.sort_order AS category_order
            FROM documents d JOIN categories c ON c.id = d.category_id
           ORDER BY c.sort_order, c.id, d.name COLLATE NOCASE, d.id;`);
-      return rows.map((r) => ({ ...toRecord(r), categoryName: r.category_name, categoryOrder: r.category_order, missing: false }));
+      return rows.map((r) => ({ ...toRecord(r), categoryName: r.category_name, categorySlug: r.category_slug, categoryOrder: r.category_order, missing: false }));
     },
 
     async get(id) { return toRecord(await getRow(id)); },

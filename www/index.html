@@ -8,33 +8,34 @@
   <title>MyDocs</title>
   <script src="js/theme-init.js"></script>
   <script src="js/lock-init.js"></script>
+  <script src="js/lang-init.js"></script>
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
   <header class="app-bar" id="app-bar">
-    <button type="button" class="hdr-btn" id="menu-open" aria-label="Open navigation menu" aria-expanded="false" aria-controls="drawer">
+    <button type="button" class="hdr-btn" id="menu-open" aria-label="Open navigation menu" data-i18n-aria-label="nav.open" aria-expanded="false" aria-controls="drawer">
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M3 18h18v-2H3v2Zm0-5h18v-2H3v2Zm0-7v2h18V6H3Z"/></svg>
     </button>
-    <button type="button" class="hdr-btn" id="page-back" aria-label="Back" hidden>
+    <button type="button" class="hdr-btn" id="page-back" aria-label="Back" data-i18n-aria-label="common.back" hidden>
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20 11H7.8l5.6-5.6L12 4l-8 8 8 8 1.4-1.4L7.8 13H20v-2Z"/></svg>
     </button>
     <div class="brand">
       <svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M6 2h9l5 5v15H6V2Zm8 1.5V8h4.5L14 3.5ZM9 12h8v1.5H9V12Zm0 3h8v1.5H9V15Z"/></svg>
       <h1 id="app-title">MyDocs</h1>
     </div>
-    <button type="button" class="share-files-btn" id="share-files" aria-label="Share selected files as a ZIP" hidden>
+    <button type="button" class="share-files-btn" id="share-files" aria-label="Share selected files as a ZIP" data-i18n-aria-label="share.zipAria" hidden>
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 1 0-3-3c0 .24.04.47.09.7L8.04 9.81A2.99 2.99 0 0 0 6 9a3 3 0 1 0 0 6c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65a2.92 2.92 0 1 0 2.92-2.92Z"/></svg>
-      <span>Share Files</span>
+      <span data-i18n="share.files">Share Files</span>
     </button>
-    <button type="button" class="hdr-btn" id="search-open" aria-label="Search documents" aria-expanded="false" aria-controls="search-bar">
+    <button type="button" class="hdr-btn" id="search-open" aria-label="Search documents" data-i18n-aria-label="search.open" aria-expanded="false" aria-controls="search-bar">
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M15.5 14h-.8l-.3-.3A6.5 6.5 0 1 0 14 15.5l.3.3v.8l5 5 1.5-1.5-5-5Zm-6 0a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9Z"/></svg>
     </button>
     <form class="search-bar" id="search-bar" role="search" novalidate hidden>
-      <button type="button" class="hdr-btn" id="search-close" aria-label="Close search">
+      <button type="button" class="hdr-btn" id="search-close" aria-label="Close search" data-i18n-aria-label="search.close">
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20 11H7.8l5.6-5.6L12 4l-8 8 8 8 1.4-1.4L7.8 13H20v-2Z"/></svg>
       </button>
-      <input id="search-input" type="search" placeholder="Search by name or date" aria-label="Search documents by name or date" enterkeyhint="search" autocomplete="off" autocapitalize="off" spellcheck="false">
-      <button type="button" class="hdr-btn" id="search-clear" aria-label="Clear search" hidden>
+      <input id="search-input" type="search" placeholder="Search by name or date" data-i18n-placeholder="search.placeholder" aria-label="Search documents by name or date" data-i18n-aria-label="search.inputAria" enterkeyhint="search" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <button type="button" class="hdr-btn" id="search-clear" aria-label="Clear search" data-i18n-aria-label="search.clear" hidden>
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M19 6.4 17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12 19 6.4Z"/></svg>
       </button>
     </form>
@@ -44,22 +45,22 @@
   <main>
     <div id="banner" class="banner" role="status" hidden></div>
 
-    <section id="dashboard-view" aria-label="Dashboard">
+    <section id="dashboard-view" aria-label="Dashboard" data-i18n-aria-label="dash.aria">
       <div class="welcome">
-        <h2>Welcome to MyDocs</h2>
-        <p>All your important documents in one place.</p>
+        <h2 data-i18n="dash.welcome">Welcome to MyDocs</h2>
+        <p data-i18n="dash.tagline">All your important documents in one place.</p>
       </div>
       <div id="categories" class="category-grid"></div>
     </section>
 
-    <section id="search-view" aria-label="Search results" hidden>
+    <section id="search-view" aria-label="Search results" data-i18n-aria-label="search.resultsAria" hidden>
       <p id="search-status" class="search-status" role="status" aria-live="polite"></p>
       <ul id="search-results" class="results"></ul>
     </section>
 
     <section id="category-view" aria-labelledby="cv-title" hidden>
       <div class="cv-header">
-        <button type="button" class="back-btn" id="cv-back" aria-label="Back to dashboard">
+        <button type="button" class="back-btn" id="cv-back" aria-label="Back to dashboard" data-i18n-aria-label="cat.backToDashboard">
           <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M20 11H7.8l5.6-5.6L12 4l-8 8 8 8 1.4-1.4L7.8 13H20v-2Z"/></svg>
         </button>
         <span class="category-icon" id="cv-icon"></span>
@@ -69,10 +70,10 @@
         </div>
       </div>
       <div class="cv-actions">
-        <button type="button" class="btn filled" id="cv-add">Add document</button>
+        <button type="button" class="btn filled" id="cv-add" data-i18n="cat.addDocument">Add document</button>
         <button type="button" class="btn outlined" id="cv-camera">
           <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" fill-rule="evenodd" d="M9 3 7.2 5H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-3.2L15 3H9Zm3 5a5 5 0 1 1 0 10 5 5 0 0 1 0-10Zm0 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z"/></svg>
-          <span>Capture with Camera</span>
+          <span data-i18n="cat.capture">Capture with Camera</span>
         </button>
       </div>
       <div id="cv-docs"></div>
@@ -82,10 +83,10 @@
 
   <div id="all-scroller" class="scroller" hidden>
     <main>
-      <section id="all-view" aria-label="All documents">
+      <section id="all-view" aria-label="All documents" data-i18n-aria-label="all.aria">
         <div class="selection-bar">
           <span id="sel-count" role="status" aria-live="polite">0 selected</span>
-          <button type="button" class="btn text" id="sel-clear" disabled>Clear</button>
+          <button type="button" class="btn text" id="sel-clear" data-i18n="common.clear" disabled>Clear</button>
         </div>
         <div id="all-list"></div>
       </section>
@@ -94,7 +95,7 @@
 
   <div id="settings-scroller" class="scroller" hidden>
     <main>
-      <section id="settings-view" aria-label="Settings">
+      <section id="settings-view" aria-label="Settings" data-i18n-aria-label="set.aria">
         <div id="settings-list"></div>
       </section>
     </main>
@@ -103,29 +104,29 @@
   <!-- Fixed Add Category bar + independently scrolling list (#cat-scroller) -->
   <div id="categories-scroller" class="fixed-page" hidden>
     <div class="fixed-page-bar">
-      <button type="button" class="btn filled add-category-btn" id="cat-add" aria-label="Add Category">
+      <button type="button" class="btn filled add-category-btn" id="cat-add" aria-label="Add Category" data-i18n-aria-label="manage.add">
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2Z"/></svg>
-        <span>Add Category</span>
+        <span data-i18n="manage.add">Add Category</span>
       </button>
     </div>
     <div id="cat-scroller" class="scroller">
       <main>
-        <section id="categories-view" aria-label="Manage categories">
+        <section id="categories-view" aria-label="Manage categories" data-i18n-aria-label="manage.aria">
           <ul id="cat-list" class="cat-list"></ul>
-          <p class="settings-hint">Built-in categories are permanent. Your own categories can be renamed, re-iconed or deleted.</p>
+          <p class="settings-hint" data-i18n="manage.hint">Built-in categories are permanent. Your own categories can be renamed, re-iconed or deleted.</p>
         </section>
       </main>
     </div>
   </div>
 
-  <nav class="tab-bar" aria-label="Main sections">
+  <nav class="tab-bar" aria-label="Main sections" data-i18n-aria-label="tab.aria">
     <button type="button" class="tab active" id="tab-category" data-tab="category" aria-current="page">
       <span class="tab-icon"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M3 3h8v8H3V3Zm10 0h8v8h-8V3ZM3 13h8v8H3v-8Zm10 0h8v8h-8v-8Z"/></svg></span>
-      <span class="tab-label">Category</span>
+      <span class="tab-label" data-i18n="tab.category">Category</span>
     </button>
     <button type="button" class="tab" id="tab-all" data-tab="all">
       <span class="tab-icon"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M3 5h2v2H3V5Zm4 0h14v2H7V5ZM3 11h2v2H3v-2Zm4 0h14v2H7v-2ZM3 17h2v2H3v-2Zm4 0h14v2H7v-2Z"/></svg></span>
-      <span class="tab-label">All Documents</span>
+      <span class="tab-label" data-i18n="tab.all">All Documents</span>
     </button>
   </nav>
 
@@ -135,52 +136,58 @@
     <form id="name-form" novalidate>
       <h3 id="nd-title">Document name</h3>
       <p id="nd-file" class="nd-file" hidden></p>
-      <label for="nd-input">Document Name</label>
+      <label for="nd-input" data-i18n="name.label">Document Name</label>
       <input id="nd-input" type="text" maxlength="120" autocomplete="off" placeholder="e.g., My Aadhaar Card" aria-describedby="nd-error">
       <p id="nd-error" class="field-error" role="alert" hidden></p>
       <div class="dialog-actions">
-        <button type="button" class="btn text" id="nd-cancel">Cancel</button>
-        <button type="submit" class="btn filled" id="nd-save">Save Document</button>
+        <button type="button" class="btn text" id="nd-cancel" data-i18n="common.cancel">Cancel</button>
+        <button type="submit" class="btn filled" id="nd-save" data-i18n="name.save">Save Document</button>
       </div>
     </form>
   </dialog>
 
   <dialog id="preview-dialog" aria-labelledby="pv-title">
-    <h3 id="pv-title">Check your photo</h3>
-    <img id="pv-img" alt="Preview of the captured document">
+    <h3 id="pv-title" data-i18n="pv.title">Check your photo</h3>
+    <img id="pv-img" alt="Preview of the captured document" data-i18n-alt="pv.alt">
     <div class="dialog-actions pv-actions">
-      <button type="button" class="btn text" id="pv-cancel">Cancel</button>
-      <button type="button" class="btn outlined" id="pv-retake">Retake</button>
-      <button type="button" class="btn filled" id="pv-continue">Continue</button>
+      <button type="button" class="btn text" id="pv-cancel" data-i18n="common.cancel">Cancel</button>
+      <button type="button" class="btn outlined" id="pv-retake" data-i18n="pv.retake">Retake</button>
+      <button type="button" class="btn filled" id="pv-continue" data-i18n="pv.continue">Continue</button>
     </div>
   </dialog>
 
   <dialog id="viewer-dialog" aria-labelledby="vw-title">
     <div class="vw-bar">
       <h3 id="vw-title"></h3>
-      <button type="button" class="btn text vw-close" id="vw-close">Close</button>
+      <button type="button" class="btn text vw-close" id="vw-close" data-i18n="common.close">Close</button>
     </div>
     <img id="vw-img" alt="">
   </dialog>
 
   <dialog id="theme-dialog" aria-labelledby="th-title">
-    <h3 id="th-title">Choose theme</h3>
+    <h3 id="th-title" data-i18n="theme.title">Choose theme</h3>
     <div id="th-options" role="radiogroup" aria-labelledby="th-title"></div>
-    <div class="dialog-actions"><button type="button" class="btn text" id="th-close">Close</button></div>
+    <div class="dialog-actions"><button type="button" class="btn text" id="th-close" data-i18n="common.close">Close</button></div>
+  </dialog>
+
+  <dialog id="lang-dialog" aria-labelledby="lg-title">
+    <h3 id="lg-title" data-i18n="lang.title">Choose language</h3>
+    <div id="lg-options" role="radiogroup" aria-labelledby="lg-title"></div>
+    <div class="dialog-actions"><button type="button" class="btn text" id="lg-close" data-i18n="common.close">Close</button></div>
   </dialog>
 
   <dialog id="cat-dialog" aria-labelledby="cd-title">
     <form id="cat-form" novalidate>
       <h3 id="cd-title">Add Category</h3>
       <div class="cd-preview" aria-hidden="true"><span class="category-icon" id="cd-preview-icon"></span><span class="cd-preview-name" id="cd-preview-name"></span></div>
-      <label for="cd-name">Category Name</label>
-      <input id="cd-name" type="text" maxlength="40" placeholder="Enter category name" autocomplete="off" aria-describedby="cd-error">
+      <label for="cd-name" data-i18n="cd.label">Category Name</label>
+      <input id="cd-name" type="text" maxlength="40" placeholder="Enter category name" data-i18n-placeholder="cd.placeholder" autocomplete="off" aria-describedby="cd-error">
       <p id="cd-error" class="field-error" role="alert" hidden></p>
-      <p class="cd-heading" id="cd-icons-label">Choose Icon</p>
+      <p class="cd-heading" id="cd-icons-label" data-i18n="cd.chooseIcon">Choose Icon</p>
       <div id="cd-icons" class="icon-grid" role="radiogroup" aria-labelledby="cd-icons-label"></div>
       <div class="dialog-actions">
-        <button type="button" class="btn text" id="cd-cancel">Cancel</button>
-        <button type="submit" class="btn filled" id="cd-save">Save Category</button>
+        <button type="button" class="btn text" id="cd-cancel" data-i18n="common.cancel">Cancel</button>
+        <button type="submit" class="btn filled" id="cd-save" data-i18n="cd.save">Save Category</button>
       </div>
     </form>
   </dialog>
@@ -189,26 +196,26 @@
     <h3 id="cdel-title">Delete category?</h3>
     <p id="cdel-text" class="cdel-text"></p>
     <div id="cdel-move" hidden>
-      <label for="cdel-target">Move documents to</label>
+      <label for="cdel-target" data-i18n="cdel.moveLabel">Move documents to</label>
       <select id="cdel-target"></select>
     </div>
     <p id="cdel-error" class="field-error" role="alert" hidden></p>
     <div class="dialog-actions">
-      <button type="button" class="btn text" id="cdel-cancel">Cancel</button>
-      <button type="button" class="btn danger-fill" id="cdel-confirm">Delete</button>
+      <button type="button" class="btn text" id="cdel-cancel" data-i18n="common.cancel">Cancel</button>
+      <button type="button" class="btn danger-fill" id="cdel-confirm" data-i18n="common.delete">Delete</button>
     </div>
   </dialog>
 
   <div id="drawer-scrim" class="drawer-scrim" hidden></div>
-  <aside id="drawer" class="drawer" role="dialog" aria-modal="true" aria-label="Navigation menu" hidden>
+  <aside id="drawer" class="drawer" role="dialog" aria-modal="true" aria-label="Navigation menu" data-i18n-aria-label="drawer.aria" hidden>
     <div class="drawer-head">
       <span class="drawer-logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M6 2h9l5 5v15H6V2Zm8 1.5V8h4.5L14 3.5ZM9 12h8v1.5H9V12Zm0 3h8v1.5H9V15Z"/></svg></span>
       <div class="drawer-titles">
         <p class="drawer-name">MyDocs</p>
-        <p class="drawer-sub">Your personal document manager</p>
+        <p class="drawer-sub" data-i18n="drawer.sub">Your personal document manager</p>
       </div>
     </div>
-    <nav aria-label="Menu"><ul id="drawer-items" class="drawer-items"></ul></nav>
+    <nav aria-label="Menu" data-i18n-aria-label="common.menu"><ul id="drawer-items" class="drawer-items"></ul></nav>
   </aside>
 
   <dialog id="progress-dialog" class="progress-dialog" aria-labelledby="pg-text">
@@ -217,11 +224,11 @@
   </dialog>
 
   <dialog id="lockinfo-dialog" aria-labelledby="li-title">
-    <h3 id="li-title">Screen lock needed</h3>
+    <h3 id="li-title" data-i18n="lockinfo.title">Screen lock needed</h3>
     <p id="li-text" class="cdel-text"></p>
     <div class="dialog-actions">
-      <button type="button" class="btn text" id="li-close">Close</button>
-      <button type="button" class="btn filled" id="li-settings">Open Android Settings</button>
+      <button type="button" class="btn text" id="li-close" data-i18n="common.close">Close</button>
+      <button type="button" class="btn filled" id="li-settings" data-i18n="lockinfo.open">Open Android Settings</button>
     </div>
   </dialog>
 
@@ -229,10 +236,10 @@
   <div id="lock-screen" class="lock-screen" role="alertdialog" aria-modal="true" aria-labelledby="lock-title" aria-describedby="lock-msg">
     <div class="lock-card">
       <span class="lock-badge"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2Zm-6 9a2 2 0 1 1 0-4 2 2 0 0 1 0 4Zm3.1-9H8.9V6a3.1 3.1 0 0 1 6.2 0v2Z"/></svg></span>
-      <h2 id="lock-title">MyDocs is locked</h2>
-      <p id="lock-msg" role="status">Unlock with your fingerprint, face or screen lock.</p>
-      <button type="button" class="btn filled" id="lock-unlock">Unlock</button>
-      <button type="button" class="btn text" id="lock-settings" hidden>Open Android Settings</button>
+      <h2 id="lock-title" data-i18n="lock.title">MyDocs is locked</h2>
+      <p id="lock-msg" role="status" data-i18n="lock.msg">Unlock with your fingerprint, face or screen lock.</p>
+      <button type="button" class="btn filled" id="lock-unlock" data-i18n="lock.unlock">Unlock</button>
+      <button type="button" class="btn text" id="lock-settings" data-i18n="lockinfo.open" hidden>Open Android Settings</button>
     </div>
   </div>
 

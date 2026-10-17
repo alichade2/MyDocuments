@@ -11,8 +11,11 @@ import { MENU_ITEMS, buildSettingsSections } from './menu.js';
 import { THEME_OPTIONS, loadTheme, saveTheme, applyTheme } from './theme.js';
 import { iconPath, CATEGORY_ICON_CHOICES, DEFAULT_CATEGORY_ICON } from './icons.js';
 import { createAppLock, nativeAuthenticator, previewAuthenticator, lockMessage } from './applock.js';
+import { t, tn, countLabel, categoryLabel, errorText, LANGUAGES, loadLanguage, saveLanguage, setLanguage, getLanguage, applyStaticTranslations } from './i18n.js';
 
 const $ = (id) => document.getElementById(id);
+setLanguage(loadLanguage()); // before anything is rendered; English unless the user chose otherwise
+applyStaticTranslations();
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 const FILE_TYPES = {
@@ -48,7 +51,7 @@ function svgIcon(name, cls = '') {
   return svg;
 }
 
-const plural = (n) => `${n} ${n === 1 ? 'document' : 'documents'}`;
+const plural = (n) => countLabel(n);
 
 function formatSize(bytes) {
   if (!bytes) return '';
@@ -68,7 +71,7 @@ function showMessage(text) {
 async function guarded(fn) {
   try { return await fn(); } catch (err) {
     if (err?.code !== 'DEMO_DOCUMENT') console.error('MyDocs error:', err?.code || err?.name || 'error', err?.code ? '' : String(err?.stack ?? '').replace(/\s+/g, ' ').slice(0, 300));
-    showMessage(err?.message || String(err));
+    showMessage(errorText(err) || String(err));
   }
 }
 
@@ -78,7 +81,7 @@ function buildCard(cat) {
   const countEl = el('span', { class: 'count' });
   const card = el('button', { class: 'cat-card', type: 'button', 'data-category-id': String(cat.id), id: `cat-${cat.slug}` },
     el('span', { class: 'cat-top' }, el('span', { class: 'category-icon' }, svgIcon(cat.icon)), svgIcon('chevron', 'chevron')),
-    el('span', { class: 'cat-name' }, cat.name),
+    el('span', { class: 'cat-name' }, categoryLabel(cat)),
     countEl);
   const entry = { cat, count: 0, countEl, cardEl: card };
   cards.set(cat.id, entry);
@@ -88,7 +91,7 @@ function buildCard(cat) {
 function updateCardCount(entry, n) {
   entry.count = n;
   entry.countEl.textContent = plural(n);
-  entry.cardEl.setAttribute('aria-label', `${entry.cat.name}, ${plural(n)}`);
+  entry.cardEl.setAttribute('aria-label', `${categoryLabel(entry.cat)}, ${plural(n)}`);
 }
 
 async function buildDashboard() {
@@ -109,8 +112,8 @@ async function buildDashboard() {
 
 /* ---------- Category view ---------- */
 
-function actionButton(action, icon, label, extraClass = '') {
-  const b = el('button', { type: 'button', class: `icon-btn ${extraClass}`.trim(), 'data-action': action, 'aria-label': label, title: label.split(' ')[0] });
+function actionButton(action, icon, label, title, extraClass = '') {
+  const b = el('button', { type: 'button', class: `icon-btn ${extraClass}`.trim(), 'data-action': action, 'aria-label': label, title });
   b.append(svgIcon(icon));
   return b;
 }
@@ -127,28 +130,28 @@ function renderDocCard(doc) {
     leading = img;
   }
   const meta = [doc.fileType?.toUpperCase(), formatSize(doc.fileSize), doc.createdAt?.slice(0, 10)].filter(Boolean).join(' · ');
-  const main = el('button', { class: 'card-main', type: 'button', 'data-action': 'open', 'aria-label': `${doc.name}${doc.isDemo ? ' (sample)' : ''}` },
+  const main = el('button', { class: 'card-main', type: 'button', 'data-action': 'open', 'aria-label': `${doc.name}${doc.isDemo ? t('doc.sampleParen') : ''}` },
     leading,
     el('span', { class: 'card-name' }, doc.name),
     el('span', { class: 'card-meta' }, meta));
-  if (doc.isDemo) main.append(el('span', { class: 'badge' }, 'Sample'));
-  if (doc.missing) main.append(el('span', { class: 'card-warn' }, 'File missing'));
+  if (doc.isDemo) main.append(el('span', { class: 'badge' }, t('doc.sample')));
+  if (doc.missing) main.append(el('span', { class: 'card-warn' }, t('doc.fileMissing')));
   return el('article', { class: `card${doc.missing ? ' missing' : ''}`, 'data-doc-id': String(doc.id) }, main,
     el('div', { class: 'card-actions' },
-      actionButton('rename', 'edit', `Rename ${doc.name}`),
-      actionButton('share', 'share', `Share ${doc.name}`),
-      actionButton('delete', 'delete', `Delete ${doc.name}`, 'danger')));
+      actionButton('rename', 'edit', t('doc.rename', { name: doc.name }), t('act.rename')),
+      actionButton('share', 'share', t('doc.share', { name: doc.name }), t('act.share')),
+      actionButton('delete', 'delete', t('doc.delete', { name: doc.name }), t('act.delete'), 'danger')));
 }
 
 function renderCategoryView() {
   const entry = cards.get(view.categoryId);
   const docs = view.docs.get(view.categoryId) ?? [];
   $('cv-icon').replaceChildren(svgIcon(entry.cat.icon));
-  $('cv-title').textContent = entry.cat.name;
+  $('cv-title').textContent = categoryLabel(entry.cat);
   $('cv-count').textContent = plural(docs.length);
   $('cv-docs').replaceChildren(docs.length
     ? el('div', { class: 'grid' }, ...docs.map(renderDocCard))
-    : el('div', { class: 'empty' }, `No documents in ${entry.cat.name} yet.`));
+    : el('div', { class: 'empty' }, t('cat.empty', { name: categoryLabel(entry.cat) })));
   updateCardCount(entry, docs.length);
 }
 
@@ -242,9 +245,9 @@ function openNameDialog(flow) {
   $('nd-save').textContent = flow.saveLabel;
   const f = $('nd-file');
   f.hidden = !flow.fileLabel;
-  f.textContent = flow.fileLabel ? `File: ${flow.fileLabel}` : '';
+  f.textContent = flow.fileLabel ? t('name.file', { file: flow.fileLabel }) : '';
   setNameError('');
-  $('nd-input').placeholder = flow.placeholder ?? 'e.g., My Aadhaar Card';
+  $('nd-input').placeholder = flow.placeholder ?? t('name.placeholder');
   $('nd-input').value = flow.initial;
   $('name-dialog').showModal();
   $('nd-input').select();
@@ -267,7 +270,7 @@ function setNameError(msg) {
 function setSaving(on) {
   saving = on;
   $('nd-save').disabled = on; $('nd-cancel').disabled = on; $('nd-input').disabled = on;
-  $('nd-save').textContent = on ? 'Saving…' : nameFlow?.saveLabel ?? 'Save';
+  $('nd-save').textContent = on ? t('name.saving') : nameFlow?.saveLabel ?? t('common.save');
 }
 
 async function submitName(e) {
@@ -275,7 +278,7 @@ async function submitName(e) {
   if (saving || !nameFlow) return; // prevents double submission
   let name;
   try { name = validateName($('nd-input').value); } catch (err) {
-    setNameError(err.code === 'INVALID_NAME' && !$('nd-input').value.trim() ? 'Please enter a document name.' : err.message);
+    setNameError(err.code === 'INVALID_NAME' && !$('nd-input').value.trim() ? t('name.enter') : errorText(err));
     $('nd-input').focus();
     return;
   }
@@ -286,7 +289,7 @@ async function submitName(e) {
     showMessage(message);
   } catch (err) {
     console.error('MyDocs error:', err?.code || err?.name || 'error');
-    setNameError(err?.message || 'Could not save. Please try again.');
+    setNameError(errorText(err, 'name.saveFailed'));
   } finally {
     setSaving(false);
   }
@@ -298,11 +301,11 @@ const addDoc = () => guarded(async () => {
   const file = await service.pickFile();
   if (!file) return; // user cancelled the picker
   openNameDialog({
-    title: 'Name your document', saveLabel: 'Save Document', fileLabel: file.name, initial: suggestName(file.name),
+    title: t('name.title'), saveLabel: t('name.save'), fileLabel: file.name, initial: suggestName(file.name),
     onSave: async (name) => {
       await service.importFile(categoryId, file, name);
       await reloadCategory(categoryId);
-      return `Saved "${name}"`;
+      return t('doc.saved', { name });
     },
   });
 });
@@ -343,11 +346,11 @@ function continueCapture() {
   const day = new Date().toISOString().slice(0, 10);
   $('preview-dialog').close();
   openNameDialog({
-    title: 'Name your document', saveLabel: 'Save Document', placeholder: 'e.g., Aadhaar Card Front', initial: `Captured Document ${day}`,
+    title: t('name.title'), saveLabel: t('name.save'), placeholder: t('name.placeholderCapture'), initial: t('doc.capturedDefault', { day }),
     onSave: async (name) => {
       await service.importFile(categoryId, photo, name);
       await reloadCategory(categoryId);
-      return `Saved "${name}"`;
+      return t('doc.saved', { name });
     },
     onClose: releasePending, // Cancel (or Esc) discards the capture
   });
@@ -372,7 +375,7 @@ function shareDoc(doc) {
 
 /** Opens exactly this document (by id): images in the full-screen viewer, other files in the system viewer. */
 function openDocument(doc) {
-  if (doc.isDemo) showMessage(DEMO_MESSAGE); // never pretend a sample file exists
+  if (doc.isDemo) showMessage(errorText({ message: DEMO_MESSAGE })); // never pretend a sample file exists
   else if (IMAGE_TYPES.has(doc.fileType)) viewImage(doc);
   else guarded(() => service.open(doc.id));
 }
@@ -388,14 +391,14 @@ function handleDocAction(e) {
     openDocument(doc);
   } else if (action === 'rename') {
     openNameDialog({
-      title: 'Rename document', saveLabel: 'Save', initial: doc.name,
-      onSave: async (name) => { await service.rename(doc.id, name); await reloadCategory(doc.categoryId); return 'Document renamed'; },
+      title: t('name.renameTitle'), saveLabel: t('common.save'), initial: doc.name,
+      onSave: async (name) => { await service.rename(doc.id, name); await reloadCategory(doc.categoryId); return t('doc.renamed'); },
     });
   } else if (action === 'share') {
     shareDoc(doc);
   } else if (action === 'delete') {
     guarded(async () => {
-      const msg = doc.isDemo ? `Remove sample document "${doc.name}"?` : `Delete "${doc.name}"? This removes the stored file too.`;
+      const msg = doc.isDemo ? t('doc.confirmRemoveSample', { name: doc.name }) : t('doc.confirmDelete', { name: doc.name });
       if (!confirm(msg)) return;
       await service.remove(doc.id);
       await reloadCategory(doc.categoryId);
@@ -408,6 +411,7 @@ function wireEvents() {
   $('page-back').addEventListener('click', pageBack);
   $('settings-list').addEventListener('click', (e) => {
     if (e.target.closest('[data-action="theme"]')) openThemeDialog();
+    else if (e.target.closest('[data-action="language"]')) openLanguageDialog();
     else if (e.target.closest('[data-action="app-lock"]')) toggleAppLock();
   });
   wireCategories();
@@ -417,6 +421,12 @@ function wireEvents() {
     setTimeout(() => $('theme-dialog').close(), 180); // brief moment to see the new selection
   });
   $('th-close').addEventListener('click', () => $('theme-dialog').close());
+  $('lg-options').addEventListener('change', (e) => {
+    if (e.target.name !== 'language') return;
+    setAppLanguage(e.target.value);
+    setTimeout(() => $('lang-dialog').close(), 180); // brief moment to see the new selection
+  });
+  $('lg-close').addEventListener('click', () => $('lang-dialog').close());
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && nav.page && !drawer.isOpen() && !document.querySelector('dialog[open]')) pageBack(); });
   wireAllDocuments();
   // One delegated listener per container; nothing is re-registered when views change.
@@ -462,17 +472,17 @@ function renderResult(doc, q) {
     service.thumbnailSrc(doc).then((src) => { if (src) img.src = src; else img.replaceWith(iconEl); }).catch(() => img.replaceWith(iconEl));
     leading = img;
   }
-  const meta = el('span', { class: 'result-meta' }, `${doc.categoryName} · ${doc.createdAt?.slice(0, 10) ?? ''} · ${(doc.fileType ?? '').toUpperCase()}`);
-  if (doc.isDemo) meta.append(el('span', { class: 'badge' }, 'Sample'));
+  const meta = el('span', { class: 'result-meta' }, `${categoryLabel(doc)} · ${doc.createdAt?.slice(0, 10) ?? ''} · ${(doc.fileType ?? '').toUpperCase()}`);
+  if (doc.isDemo) meta.append(el('span', { class: 'badge' }, t('doc.sample')));
   const name = el('span', { class: 'result-name' });
   name.append(...highlight(doc.name, q));
   // Two sibling buttons (never nested): the row opens the document, the share icon shares this exact document.
-  const share = el('button', { type: 'button', class: 'icon-btn result-share', 'data-action': 'share', 'aria-label': `Share document ${doc.name}, ${doc.categoryName}`, title: 'Share document' });
+  const share = el('button', { type: 'button', class: 'icon-btn result-share', 'data-action': 'share', 'aria-label': t('doc.shareAria', { name: doc.name, category: categoryLabel(doc) }), title: t('doc.shareDocument') });
   share.append(svgIcon('share'));
   return el('li', { class: 'result-row', 'data-doc-id': String(doc.id) },
     el('button', {
       type: 'button', class: 'result', 'data-action': 'open',
-      'aria-label': `${doc.name}, ${doc.categoryName}, ${doc.createdAt?.slice(0, 10) ?? ''}${doc.isDemo ? ', sample' : ''}`,
+      'aria-label': `${doc.name}, ${categoryLabel(doc)}, ${doc.createdAt?.slice(0, 10) ?? ''}${doc.isDemo ? t('doc.sampleAria') : ''}`,
     }, leading, el('span', { class: 'result-text' }, name, meta)),
     share);
 }
@@ -482,7 +492,7 @@ function setSearchStatus(...nodes) { $('search-status').replaceChildren(...nodes
 function renderSearchHint() {
   $('search-results').replaceChildren();
   search.results.clear();
-  setSearchStatus(document.createTextNode('Search by document name or date, e.g. "passport" or 17/10/2026.'));
+  setSearchStatus(document.createTextNode(t('search.hint')));
 }
 
 function renderSearchResults(rows, q) {
@@ -490,17 +500,17 @@ function renderSearchResults(rows, q) {
   const list = $('search-results');
   if (!rows.length) {
     list.replaceChildren();
-    setSearchStatus(el('span', {}, el('strong', {}, 'No documents found'), document.createTextNode(' - check the name or try a date like 2026-10-17.')));
+    setSearchStatus(el('span', {}, el('strong', {}, t('search.none')), document.createTextNode(t('search.noneHelp'))));
     return;
   }
   list.replaceChildren(...rows.map((d) => renderResult(d, q)));
-  setSearchStatus(document.createTextNode(`${rows.length} ${rows.length === 1 ? 'document' : 'documents'} found`));
+  setSearchStatus(document.createTextNode(tn('search.found', rows.length)));
 }
 
 async function runSearch(q) {
   const mine = ++search.seq; // any older in-flight search is now stale
   clearTimeout(search.spinnerTimer);
-  search.spinnerTimer = setTimeout(() => { if (mine === search.seq) setSearchStatus(el('span', { class: 'spinner', 'aria-hidden': 'true' }), document.createTextNode('Searching...')); }, 250);
+  search.spinnerTimer = setTimeout(() => { if (mine === search.seq) setSearchStatus(el('span', { class: 'spinner', 'aria-hidden': 'true' }), document.createTextNode(t('search.searching'))); }, 250);
   try {
     const rows = await service.search(q);
     if (mine !== search.seq) return; // a newer query (or closing search) superseded this one
@@ -510,7 +520,7 @@ async function runSearch(q) {
     if (mine !== search.seq) return;
     clearTimeout(search.spinnerTimer);
     console.error('MyDocs search error:', err?.code || err?.name || 'error');
-    setSearchStatus(document.createTextNode('Search failed. Please try again.'));
+    setSearchStatus(document.createTextNode(t('search.failed')));
   }
 }
 
@@ -636,14 +646,14 @@ function switchTab(name) {
   }
   const target = $(name === 'all' ? 'all-scroller' : 'scroller');
   const restore = () => { target.scrollTop = tabs.scroll[name]; };
-  if (name === 'all' && tabs.allDirty) refreshAllDocuments().then(restore).catch((err) => { console.error('MyDocs list error:', err?.name || 'error', String(err?.stack ?? '').replace(/\s+/g, ' ').slice(0, 300)); showMessage('Could not load documents.'); }); else restore();
+  if (name === 'all' && tabs.allDirty) refreshAllDocuments().then(restore).catch((err) => { console.error('MyDocs list error:', err?.name || 'error', String(err?.stack ?? '').replace(/\s+/g, ' ').slice(0, 300)); showMessage(t('all.loadFailed')); }); else restore();
 }
 
 function updateSelectionUI() {
   const n = selection.size;
-  $('sel-count').textContent = `${n} selected`;
+  $('sel-count').textContent = t('sel.count', { n });
   $('sel-clear').disabled = n === 0;
-  $('share-files').setAttribute('aria-label', n ? `Share ${n} selected ${n === 1 ? 'file' : 'files'} as a ZIP` : 'Share selected files as a ZIP');
+  $('share-files').setAttribute('aria-label', n ? tn('share.zipAria', n) : t('share.zipAria'));
   for (const [, g] of allState.groups) {
     const st = selection.stateOf(g.ids);
     g.check.checked = st === 'all';
@@ -668,8 +678,8 @@ function renderAllRow(doc, g) {
     leading = img;
   }
   const meta = el('span', { class: 'result-meta' }, `${doc.createdAt?.slice(0, 10) ?? ''} · ${(doc.fileType ?? '').toUpperCase()}`);
-  if (doc.isDemo) meta.append(el('span', { class: 'badge' }, 'Sample'));
-  const input = el('input', { type: 'checkbox', class: 'doc-check', 'data-doc-id': String(doc.id), 'aria-label': `Select ${doc.name}, ${doc.categoryName}` });
+  if (doc.isDemo) meta.append(el('span', { class: 'badge' }, t('doc.sample')));
+  const input = el('input', { type: 'checkbox', class: 'doc-check', 'data-doc-id': String(doc.id), 'aria-label': t('doc.selectAria', { name: doc.name, category: categoryLabel(doc) }) });
   const label = el('label', { class: 'doc-row' }, leading,
     el('span', { class: 'result-text' }, el('span', { class: 'result-name' }, doc.name), meta),
     el('span', { class: 'check' }, input));
@@ -681,20 +691,20 @@ function renderAllRow(doc, g) {
 async function refreshAllDocuments() {
   const docs = await service.listAll();
   tabs.allDirty = false;
-  if (selection.prune(docs.map((d) => d.id)) > 0) showMessage('Some selected documents were removed from the selection because they no longer exist.');
+  if (selection.prune(docs.map((d) => d.id)) > 0) showMessage(t('all.pruned'));
   const byCat = new Map();
-  for (const d of docs) { if (!byCat.has(d.categoryId)) byCat.set(d.categoryId, { name: d.categoryName, docs: [] }); byCat.get(d.categoryId).docs.push(d); }
+  for (const d of docs) { if (!byCat.has(d.categoryId)) byCat.set(d.categoryId, { name: categoryLabel(d), docs: [] }); byCat.get(d.categoryId).docs.push(d); }
   allState.groups = new Map();
   const frag = document.createDocumentFragment();
   for (const [categoryId, { name, docs: list }] of byCat) {
-    const check = el('input', { type: 'checkbox', class: 'group-check', 'aria-label': `Select all in ${name}` });
+    const check = el('input', { type: 'checkbox', class: 'group-check', 'aria-label': t('doc.selectAllIn', { name }) });
     const g = { ids: list.map((d) => d.id), check, rows: new Map() };
     allState.groups.set(categoryId, g);
     frag.append(el('section', { class: 'group', 'aria-label': name },
       el('label', { class: 'group-header' }, el('span', { class: 'group-title' }, name, el('span', { class: 'group-count' }, ` (${list.length})`)), el('span', { class: 'check' }, check)),
       ...list.map((d) => renderAllRow(d, g))));
   }
-  if (!docs.length) frag.append(el('div', { class: 'empty' }, 'No documents saved yet.'));
+  if (!docs.length) frag.append(el('div', { class: 'empty' }, t('all.empty')));
   $('all-list').replaceChildren(frag);
   updateSelectionUI();
 }
@@ -717,26 +727,26 @@ function wireAllDocuments() {
 
 async function shareSelected() {
   if (allState.busy) return; // no duplicate submissions while the archive is being built
-  if (selection.size === 0) { showMessage('Please select at least one document to share'); return; }
+  if (selection.size === 0) { showMessage(t('zip.selectOne')); return; }
   allState.busy = true;
   $('share-files').disabled = true;
-  $('pg-text').textContent = 'Preparing ZIP file...';
+  $('pg-text').textContent = t('zip.preparing');
   $('progress-dialog').showModal();
   try {
     const res = await service.shareSelectedAsZip(selection.toList(), {
-      onProgress: (done, total) => { $('pg-text').textContent = done < total ? `Preparing ZIP file... (${done + 1} of ${total})` : 'Opening share sheet...'; },
+      onProgress: (done, total) => { $('pg-text').textContent = done < total ? t('zip.preparingN', { done: done + 1, total }) : t('zip.opening'); },
     });
     $('progress-dialog').close();
     if (res.shared) { // handed to the Android share sheet
       selection.clear();
       updateSelectionUI();
-      showMessage(`Shared ${res.count} ${res.count === 1 ? 'document' : 'documents'} as ${res.fileName}`);
+      showMessage(tn('zip.shared', res.count, { file: res.fileName }));
     } // dismissed sheet: keep the selection so the user can retry
   } catch (err) {
     $('progress-dialog').close();
     if (err?.code === 'SELECTION_STALE') await refreshAllDocuments();
     if (!['NOTHING_SELECTED', 'ZIP_UNAVAILABLE', 'SELECTION_STALE', 'ZIP_NO_SPACE', 'ZIP_TOO_LARGE'].includes(err?.code)) console.error('MyDocs ZIP error:', err?.code || err?.name || 'error');
-    showMessage(err?.message || 'Could not create the ZIP file. Please try again.');
+    showMessage(errorText(err, 'zip.failed'));
   } finally {
     allState.busy = false;
     $('share-files').disabled = false;
@@ -756,7 +766,7 @@ function closeSensitiveDialogs() {
   if ($('name-dialog').open && !saving) closeNameDialog();
   if ($('viewer-dialog').open) $('vw-close').click();
   if ($('cat-dialog').open) closeCategoryDialog();
-  for (const id of ['cdel-dialog', 'theme-dialog', 'lockinfo-dialog']) if ($(id).open) $(id).close();
+  for (const id of ['cdel-dialog', 'theme-dialog', 'lang-dialog', 'lockinfo-dialog']) if ($(id).open) $(id).close();
 }
 
 function applyLockState(locked) {
@@ -764,8 +774,8 @@ function applyLockState(locked) {
   for (const node of document.body.children) if (node.id !== 'lock-screen') node.inert = locked; // no focus, no screen-reader access
   if (locked) {
     closeSensitiveDialogs();
-    setLockMessage('Unlock with your fingerprint, face or screen lock.', false);
-    $('lock-unlock').textContent = 'Unlock';
+    setLockMessage(t('lock.msg'), false);
+    $('lock-unlock').textContent = t('lock.unlock');
   } else {
     setTimeout(() => $('menu-open')?.focus?.({ preventScroll: true }), 0);
   }
@@ -782,7 +792,7 @@ async function promptUnlock() {
   const res = await appLock.unlock();
   if (res.ok || res.code === 'BUSY') return;
   setLockMessage(lockMessage(res.code), res.code === 'NO_SCREEN_LOCK');
-  $('lock-unlock').textContent = 'Try again';
+  $('lock-unlock').textContent = t('common.retry');
 }
 
 const openSecuritySettings = () => appLock.external(async () => authenticator.openSecuritySettings?.());
@@ -797,11 +807,11 @@ async function toggleAppLock() {
   try {
     // external(): the system prompt may move the app to the background on older Android versions; that must not lock it.
     const res = await appLock.external(() => (turningOn ? appLock.enable() : appLock.disable()));
-    if (res.ok) showMessage(turningOn ? 'App Lock is on' : 'App Lock is off');
+    if (res.ok) showMessage(turningOn ? t('lock.on') : t('lock.off'));
     else if (res.code === 'NO_SCREEN_LOCK') {
-      $('li-text').textContent = 'App Lock uses your device screen lock, but none is set up. Set a PIN, pattern or password in Android Settings, then turn App Lock on again.';
+      $('li-text').textContent = t('lockinfo.text');
       $('lockinfo-dialog').showModal();
-    } else if (res.code === 'CANCELED') showMessage(turningOn ? 'App Lock was not turned on' : 'App Lock stays on');
+    } else if (res.code === 'CANCELED') showMessage(turningOn ? t('lock.notOn') : t('lock.stays'));
     else showMessage(lockMessage(res.code));
   } finally {
     lockToggleBusy = false;
@@ -828,7 +838,7 @@ function wireAppLock() {
 
 async function promptUnlockAfterReturn() {
   const res = await appLock.foreground();
-  if (!res.ok && res.code !== 'BUSY') { setLockMessage(lockMessage(res.code), res.code === 'NO_SCREEN_LOCK'); $('lock-unlock').textContent = 'Try again'; }
+  if (!res.ok && res.code !== 'BUSY') { setLockMessage(lockMessage(res.code), res.code === 'NO_SCREEN_LOCK'); $('lock-unlock').textContent = t('common.retry'); }
 }
 
 /* ---------- Navigation drawer + Settings page ---------- */
@@ -841,7 +851,7 @@ const destinations = { 'manage-categories': () => openManageCategories(), settin
 const drawer = createDrawer({
   drawer: $('drawer'), scrim: $('drawer-scrim'), list: $('drawer-items'), openButton: $('menu-open'),
   background: [$('app-bar'), $('scroller'), $('all-scroller'), $('settings-scroller'), $('categories-scroller'), document.querySelector('.tab-bar')],
-  items: MENU_ITEMS, renderIcon: (name) => svgIcon(name),
+  items: MENU_ITEMS, label: (item) => t(item.labelKey), renderIcon: (name) => svgIcon(name),
   isBlocked: () => motion.busy || allState.busy || nav.page !== null,
   onSelect: (id) => destinations[id]?.(),
 });
@@ -851,7 +861,7 @@ let theme = loadTheme();
 
 function renderSettings(info = settingsInfo) {
   settingsInfo = info;
-  const sections = buildSettingsSections({ ...info, theme, appLock: appLock.enabled });
+  const sections = buildSettingsSections({ ...info, theme, appLock: appLock.enabled, languageName: t(`lang.name.${getLanguage()}`) });
   $('settings-list').replaceChildren(...sections.map((sec) => el('section', { class: 'settings-section', 'aria-label': sec.title },
     el('h2', {}, sec.title),
     el('ul', { class: 'settings-rows' }, ...sec.rows.map((r) => {
@@ -882,12 +892,12 @@ async function refreshManageList() {
     const row = el('li', { class: 'cat-row', 'data-category-id': String(c.id) },
       el('span', { class: 'category-icon' }, svgIcon(c.icon)),
       el('span', { class: 'cat-row-text' },
-        el('span', { class: 'cat-row-name' }, c.name),
-        el('span', { class: 'cat-row-sub' }, `${plural(c.docCount)} · ${c.isCustom ? 'Custom' : 'Built-in'}`)));
+        el('span', { class: 'cat-row-name' }, categoryLabel(c)),
+        el('span', { class: 'cat-row-sub' }, `${plural(c.docCount)} · ${c.isCustom ? t('manage.custom') : t('manage.builtin')}`)));
     if (c.isCustom) {
-      const edit = el('button', { type: 'button', class: 'icon-btn', 'data-cat-action': 'edit', 'aria-label': `Edit ${c.name}`, title: 'Edit' });
+      const edit = el('button', { type: 'button', class: 'icon-btn', 'data-cat-action': 'edit', 'aria-label': t('manage.edit', { name: c.name }), title: t('common.edit') });
       edit.append(svgIcon('edit'));
-      const del = el('button', { type: 'button', class: 'icon-btn danger', 'data-cat-action': 'delete', 'aria-label': `Delete ${c.name}`, title: 'Delete' });
+      const del = el('button', { type: 'button', class: 'icon-btn danger', 'data-cat-action': 'delete', 'aria-label': t('manage.delete', { name: c.name }), title: t('common.delete') });
       del.append(svgIcon('delete'));
       row.append(edit, del);
     }
@@ -912,7 +922,7 @@ function setCatError(msg) {
 
 function renderIconGrid() {
   $('cd-icons').replaceChildren(...CATEGORY_ICON_CHOICES.map((c) => {
-    const b = el('button', { type: 'button', class: 'icon-choice', role: 'radio', 'aria-checked': String(c.key === catUi.icon), 'aria-label': c.label, title: c.label, 'data-icon': c.key });
+    const b = el('button', { type: 'button', class: 'icon-choice', role: 'radio', 'aria-checked': String(c.key === catUi.icon), 'aria-label': t(`icon.${c.key}`), title: t(`icon.${c.key}`), 'data-icon': c.key });
     b.append(svgIcon(c.key));
     return b;
   }));
@@ -921,15 +931,15 @@ function renderIconGrid() {
 
 function updateCatPreview() {
   const name = $('cd-name').value.replace(/\s+/g, ' ').trim();
-  $('cd-preview-name').textContent = name || 'Category name';
+  $('cd-preview-name').textContent = name || t('cd.previewDefault');
 }
 
 function openCategoryDialog(cat = null) {
   if ($('cat-dialog').open) return;
   catUi.editing = cat;
   catUi.icon = cat?.icon ?? DEFAULT_CATEGORY_ICON; // folder unless editing
-  $('cd-title').textContent = cat ? 'Edit Category' : 'Add Category';
-  $('cd-save').textContent = 'Save Category';
+  $('cd-title').textContent = cat ? t('cd.titleEdit') : t('cd.titleAdd');
+  $('cd-save').textContent = t('cd.save');
   $('cd-name').value = cat?.name ?? '';
   setCatError('');
   renderIconGrid();
@@ -949,7 +959,7 @@ async function submitCategory(e) {
   if (catUi.saving) return; // no repeated submissions
   catUi.saving = true;
   $('cd-save').disabled = true; $('cd-cancel').disabled = true;
-  $('cd-save').textContent = 'Saving…';
+  $('cd-save').textContent = t('cd.saving');
   try {
     const wasEdit = Boolean(catUi.editing);
     const payload = { name: $('cd-name').value, icon: catUi.icon };
@@ -957,32 +967,32 @@ async function submitCategory(e) {
     catUi.saving = false;
     closeCategoryDialog();
     await categoriesChanged();
-    showMessage(wasEdit ? 'Category updated' : 'Category created successfully');
+    showMessage(wasEdit ? t('cd.updated') : t('cd.created'));
   } catch (err) {
-    setCatError(err?.code && String(err.code).match(/CATEGORY|ICON/) ? err.message : 'Could not save the category. Please try again.');
+    setCatError(err?.code && String(err.code).match(/CATEGORY|ICON/) ? errorText(err) : t('cd.saveFailed'));
     if (!err?.code) console.error('MyDocs category error:', err?.name || 'error');
     $('cd-name').focus({ preventScroll: true });
   } finally {
     catUi.saving = false;
     $('cd-save').disabled = false; $('cd-cancel').disabled = false;
-    $('cd-save').textContent = 'Save Category';
+    $('cd-save').textContent = t('cd.save');
   }
 }
 
 function openDeleteCategory(cat) {
   catUi.deleting = cat;
-  $('cdel-title').textContent = `Delete "${cat.name}"?`;
+  $('cdel-title').textContent = t('cdel.title', { name: cat.name });
   $('cdel-error').hidden = true;
   const others = (catUi.cache ?? []).filter((c) => c.id !== cat.id);
   if (cat.docCount > 0) {
-    $('cdel-text').textContent = `This category contains ${plural(cat.docCount)}. They will not be deleted: choose a category to move them to. Document files are kept.`;
-    $('cdel-target').replaceChildren(...others.map((c) => el('option', { value: String(c.id) }, c.name)));
+    $('cdel-text').textContent = t('cdel.withDocs', { docs: plural(cat.docCount) });
+    $('cdel-target').replaceChildren(...others.map((c) => el('option', { value: String(c.id) }, categoryLabel(c))));
     $('cdel-move').hidden = false;
-    $('cdel-confirm').textContent = 'Move and delete';
+    $('cdel-confirm').textContent = t('cdel.moveAndDelete');
   } else {
-    $('cdel-text').textContent = 'This category is empty. Deleting it cannot be undone.';
+    $('cdel-text').textContent = t('cdel.empty');
     $('cdel-move').hidden = true;
-    $('cdel-confirm').textContent = 'Delete';
+    $('cdel-confirm').textContent = t('common.delete');
   }
   $('cdel-dialog').showModal();
   $('cdel-cancel').focus({ preventScroll: true });
@@ -998,9 +1008,9 @@ async function confirmDeleteCategory() {
     $('cdel-dialog').close();
     catUi.deleting = null;
     await categoriesChanged();
-    showMessage(cat.docCount > 0 ? `Category deleted; ${plural(cat.docCount)} moved` : 'Category deleted');
+    showMessage(cat.docCount > 0 ? t('cdel.deletedMoved', { docs: plural(cat.docCount) }) : t('cdel.deleted'));
   } catch (err) {
-    $('cdel-error').textContent = err?.message || 'Could not delete the category.';
+    $('cdel-error').textContent = errorText(err, 'cdel.failed');
     $('cdel-error').hidden = false;
   } finally {
     catUi.saving = false;
@@ -1051,12 +1061,12 @@ function setTheme(next) {
 
 function renderThemeOptions() {
   $('th-options').replaceChildren(...THEME_OPTIONS.map((o) => {
-    const input = el('input', { type: 'radio', name: 'theme', value: o.id, 'aria-label': `${o.label} theme. ${o.description}` });
+    const input = el('input', { type: 'radio', name: 'theme', value: o.id, 'aria-label': t('theme.aria', { label: t(o.labelKey), desc: t(o.descKey) }) });
     input.checked = o.id === theme;
     return el('label', { class: `theme-option${o.id === theme ? ' selected' : ''}`, 'data-theme-option': o.id },
       el('span', { class: 'settings-icon' }, svgIcon(o.icon)),
-      el('span', { class: 'settings-text' }, el('strong', {}, o.label), el('span', { class: 'settings-desc' }, o.description)),
-      ...(o.id === theme ? [el('span', { class: 'theme-selected-mark' }, 'Selected')] : []),
+      el('span', { class: 'settings-text' }, el('strong', {}, t(o.labelKey)), el('span', { class: 'settings-desc' }, t(o.descKey))),
+      ...(o.id === theme ? [el('span', { class: 'theme-selected-mark' }, t('theme.selected'))] : []),
       input);
   }));
 }
@@ -1068,8 +1078,67 @@ function openThemeDialog() {
   $('th-options').querySelector('input:checked')?.focus({ preventScroll: true });
 }
 
+/* ---------- Language ---------- */
+
+function renderLanguageOptions() {
+  const current = getLanguage();
+  $('lg-options').replaceChildren(...LANGUAGES.map((l) => {
+    const input = el('input', { type: 'radio', name: 'language', value: l.id, 'aria-label': `${t(l.nameKey)} (${t(l.subKey)})` });
+    input.checked = l.id === current;
+    return el('label', { class: `lang-option${l.id === current ? ' selected' : ''}`, 'data-language-option': l.id, lang: l.id },
+      el('span', { class: 'settings-text' }, el('strong', {}, t(l.nameKey)), el('span', { class: 'settings-desc', lang: 'en' }, t(l.subKey))),
+      ...(l.id === current ? [el('span', { class: 'theme-selected-mark' }, t('theme.selected'))] : []),
+      input);
+  }));
+}
+
+function openLanguageDialog() {
+  if ($('lang-dialog').open) return;
+  renderLanguageOptions();
+  $('lang-dialog').showModal();
+  $('lg-options').querySelector('input:checked')?.focus({ preventScroll: true });
+}
+
+/** Text of whatever page is showing (not stored data): used after a language change. */
+function currentTitle() {
+  return nav.page ? t(PAGES[nav.page].titleKey) : 'MyDocs';
+}
+
+/**
+ * Re-renders every piece of app-controlled text in the new language without reloading: static HTML (data-i18n),
+ * drawer, titles, settings, cards, the open category, Manage Categories and the All Documents list. Documents,
+ * file names and custom category names are data and are rendered exactly as stored.
+ */
+function refreshLanguageUI() {
+  applyStaticTranslations();
+  drawer.refreshLabels();
+  $('app-title').textContent = currentTitle();
+  renderSettings();
+  for (const entry of cards.values()) {
+    entry.cardEl.querySelector('.cat-name').textContent = categoryLabel(entry.cat);
+    updateCardCount(entry, entry.count);
+  }
+  if (view.categoryId != null && cards.has(view.categoryId)) renderCategoryView();
+  const banner = $('banner');
+  if (!banner.hidden) banner.textContent = t('banner.preview');
+  tabs.allDirty = true; // headings / counts / aria text are rebuilt when the list is next shown
+  if (tabs.current === 'all' && !nav.page) refreshAllDocuments().catch(() => {});
+  updateSelectionUI();
+  if (nav.page === 'categories') refreshManageList();
+  if (appLock.locked) { setLockMessage(t('lock.msg'), false); $('lock-unlock').textContent = t('lock.unlock'); }
+}
+
+/** Applies and stores the language right away (no restart); the choice is read again on every launch. */
+function setAppLanguage(next) {
+  const id = setLanguage(next);
+  saveLanguage(id);
+  refreshLanguageUI();
+  renderLanguageOptions();
+  showMessage(t('lang.changed', { name: t(`lang.name.${id}`) }));
+}
+
 /** Drawer pages (Manage Categories, Settings): one page at a time, opened from either tab, Back returns to that tab. */
-const PAGES = { settings: { title: 'Settings', scroller: 'settings-scroller' }, categories: { title: 'Manage Categories', scroller: 'categories-scroller' } };
+const PAGES = { settings: { titleKey: 'menu.settings', scroller: 'settings-scroller' }, categories: { titleKey: 'menu.manageCategories', scroller: 'categories-scroller' } };
 
 function openPage(name) {
   if (nav.page === name || motion.busy || allState.busy) return; // repeated taps do nothing
@@ -1082,7 +1151,7 @@ function openPage(name) {
   $(PAGES[name].scroller).hidden = false;
   document.body.classList.add('page-settings');
   $('page-back').hidden = false;
-  $('app-title').textContent = PAGES[name].title;
+  $('app-title').textContent = t(PAGES[name].titleKey);
   drawer.setActive(name === 'categories' ? 'manage-categories' : 'settings');
 }
 
@@ -1119,6 +1188,9 @@ function closeSettings() {
   $('app-title').textContent = 'MyDocs';
   drawer.setActive(null);
   $('menu-open').focus({ preventScroll: true });
+  if (nav.returnTab === 'all' && tabs.allDirty) { // categories or the language changed while this tab was hidden
+    refreshAllDocuments().then(() => { back.scrollTop = nav.returnScroll; }).catch(() => showMessage(t('all.loadFailed')));
+  }
 }
 
 /** Capacitor 8 does not handle the system Back button itself: dialogs first, then category -> dashboard, then exit. */
@@ -1132,6 +1204,7 @@ function wireBackButton() {
     if ($('cat-dialog').open) { closeCategoryDialog(); return; }
     if ($('cdel-dialog').open) { if (!catUi.saving) $('cdel-dialog').close(); return; }
     if ($('theme-dialog').open) { $('theme-dialog').close(); return; }
+    if ($('lang-dialog').open) { $('lang-dialog').close(); return; }
     if ($('viewer-dialog').open) { $('vw-close').click(); return; }
     if ($('name-dialog').open) { if (!saving) closeNameDialog(); return; }
     if ($('preview-dialog').open) { releasePending(); $('preview-dialog').close(); return; }
@@ -1159,7 +1232,7 @@ async function init() {
     service = createMockService();
     globalThis.__mydocsPreview = service; // browser preview only: lets tests inspect the in-memory ZIP
     const b = $('banner');
-    b.textContent = 'Browser preview: sample data from an in-memory mock, nothing is saved. Run the Android app for SQLite storage.';
+    b.textContent = t('banner.preview');
     b.hidden = false;
   }
   applyTheme(theme); // idempotent: theme-init.js already set data-theme before first paint
@@ -1174,4 +1247,4 @@ async function init() {
   renderSettings();
 }
 
-init().catch((err) => { console.error('MyDocs init failed:', err?.message); showMessage(`Startup failed: ${err?.message || err}`); });
+init().catch((err) => { console.error('MyDocs init failed:', err?.message); showMessage(t('startup.failed', { message: err?.message || err })); });

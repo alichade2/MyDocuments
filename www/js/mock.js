@@ -104,7 +104,7 @@ export function createMockService() {
       const byId = new Map(categories.map((c) => [c.id, c]));
       return [...docs]
         .sort((a, b) => (byId.get(a.categoryId).sort_order - byId.get(b.categoryId).sort_order) || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) || a.id - b.id)
-        .map((d) => ({ ...d, categoryName: byId.get(d.categoryId).name, categoryOrder: byId.get(d.categoryId).sort_order }));
+        .map((d) => ({ ...d, categoryName: byId.get(d.categoryId).name, categorySlug: byId.get(d.categoryId).slug, categoryOrder: byId.get(d.categoryId).sort_order }));
     },
     /** Browser preview only: builds the real ZIP in memory (inspect via lastZipBytes()); there is no share sheet here. */
     shareSelectedAsZip: async (ids, { onProgress } = {}) => {

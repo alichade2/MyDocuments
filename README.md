@@ -13,6 +13,7 @@ Lightweight document manager: vanilla HTML/CSS/ES modules, SQLite metadata, file
 | `www/js/seed.js` | The 13 built-in categories (append new ones at the end; user categories sort after them) and demo document metadata |
 | `www/js/theme.js`, `www/js/theme-init.js` | Light/Dark theme preference (stored in localStorage, applied before first paint) |
 | `www/js/applock.js`, `www/js/lock-init.js` | App Lock policy (when to ask; never what to compare) and the pre-paint "locked" marker; native side: `android/.../AppLockPlugin.java` (BiometricPrompt) |
+| `www/js/i18n.js`, `www/js/locales/{en,hi}.js`, `www/js/lang-init.js` | Localisation: `t()` lookup, English + Hindi tables, language preference (localStorage), built-in category labels |
 | `www/js/icons.js` | Icon registry: stable key -> SVG path, the 25 category icon choices, folder fallback |
 | `www/js/nav.js`, `www/js/menu.js` | Left navigation drawer component; menu items + Settings structure as data |
 | `www/js/zip.js` | Streaming ZIP writer + safe entry names (no dependencies) |
@@ -80,6 +81,10 @@ The header search icon expands into a field. Results update as you type across a
 ## Themes
 
 Settings -> Appearance -> Theme switches between Light (the default) and Dark. All colours are CSS tokens in `www/css/styles.css`: `:root` is Light, `:root[data-theme="dark"]` overrides them. The choice is the user's, not the device's, and is saved in `localStorage` and applied before the first paint. To retune a theme, edit the tokens only; `npm test` checks WCAG AA contrast for both palettes.
+
+## Languages (English / हिन्दी)
+
+Settings -> Language switches the whole interface live and remembers the choice. All app text lives in `www/js/locales/en.js` and `hi.js` (keep the keys identical; `npm test` checks it): in HTML use `data-i18n="key"` (or `data-i18n-aria-label`, `-placeholder`, `-title`, `-alt`), in code use `t('key', { name })`. To add a built-in category, add `category.<slug>` to both tables. Document names, file names and user-created category names are data and are never translated; messages thrown by the document service are mapped to translations in `ERROR_PATTERNS` (`i18n.js`).
 
 ## App Lock
 

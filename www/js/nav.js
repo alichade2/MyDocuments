@@ -20,7 +20,7 @@ const finished = (anims, ms) => Promise.race([
  * @param {(id:string)=>void} o.onSelect  called after the drawer has closed
  * @param {()=>boolean} [o.isBlocked]  e.g. a screen transition is running
  */
-export function createDrawer({ drawer, scrim, list, openButton, background, items, renderIcon, onSelect, isBlocked = () => false }) {
+export function createDrawer({ drawer, scrim, list, openButton, background, items, label = (item) => item.label, renderIcon, onSelect, isBlocked = () => false }) {
   let open = false;
   let busy = false;
   let active = null;
@@ -32,11 +32,16 @@ export function createDrawer({ drawer, scrim, list, openButton, background, item
     btn.type = 'button';
     btn.className = 'drawer-item';
     btn.dataset.id = item.id;
-    btn.append(renderIcon(item.icon), Object.assign(document.createElement('span'), { textContent: item.label }));
+    btn.append(renderIcon(item.icon), Object.assign(document.createElement('span'), { textContent: label(item) }));
     const li = document.createElement('li');
     li.append(btn);
     list.append(li);
     buttons.set(item.id, btn);
+  }
+
+  /** Re-reads every label (e.g. after a language change) without rebuilding the buttons. */
+  function refreshLabels() {
+    for (const item of items) buttons.get(item.id).querySelector('span').textContent = label(item);
   }
 
   function setActive(id) {
@@ -99,5 +104,5 @@ export function createDrawer({ drawer, scrim, list, openButton, background, item
     onSelect(btn.dataset.id);
   });
 
-  return { open: show, close: hide, isOpen: () => open, setActive };
+  return { open: show, close: hide, isOpen: () => open, setActive, refreshLabels };
 }
