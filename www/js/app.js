@@ -464,10 +464,15 @@ function renderResult(doc, q) {
   if (doc.isDemo) meta.append(el('span', { class: 'badge' }, 'Sample'));
   const name = el('span', { class: 'result-name' });
   name.append(...highlight(doc.name, q));
-  return el('li', {}, el('button', {
-    type: 'button', class: 'result', 'data-doc-id': String(doc.id),
-    'aria-label': `${doc.name}, ${doc.categoryName}, ${doc.createdAt?.slice(0, 10) ?? ''}${doc.isDemo ? ', sample' : ''}`,
-  }, leading, el('span', { class: 'result-text' }, name, meta)));
+  // Two sibling buttons (never nested): the row opens the document, the share icon shares this exact document.
+  const share = el('button', { type: 'button', class: 'icon-btn result-share', 'data-action': 'share', 'aria-label': `Share document ${doc.name}, ${doc.categoryName}`, title: 'Share document' });
+  share.append(svgIcon('share'));
+  return el('li', { class: 'result-row', 'data-doc-id': String(doc.id) },
+    el('button', {
+      type: 'button', class: 'result', 'data-action': 'open',
+      'aria-label': `${doc.name}, ${doc.categoryName}, ${doc.createdAt?.slice(0, 10) ?? ''}${doc.isDemo ? ', sample' : ''}`,
+    }, leading, el('span', { class: 'result-text' }, name, meta)),
+    share);
 }
 
 function setSearchStatus(...nodes) { $('search-status').replaceChildren(...nodes); }
@@ -598,9 +603,11 @@ function wireSearch() {
   $('search-input').addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSearch(); });
   $('search-bar').addEventListener('submit', (e) => { e.preventDefault(); $('search-input').blur(); }); // results are already live
   $('search-results').addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-doc-id]');
-    const doc = btn && search.results.get(Number(btn.dataset.docId)); // by unique id, never by name
-    if (doc) openDocument(doc);
+    const row = e.target.closest('[data-doc-id]');
+    const doc = row && search.results.get(Number(row.dataset.docId)); // by unique id, never by name
+    if (!doc) return;
+    if (e.target.closest('[data-action="share"]')) shareDoc(doc); // same code path as the share icon on document cards
+    else openDocument(doc);
   });
 }
 

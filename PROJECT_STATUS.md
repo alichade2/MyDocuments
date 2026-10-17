@@ -119,6 +119,13 @@ Dashboard v2 (12 categories + demo data) implemented 2026-10-16; see "Dashboard 
 - Verified (browser preview, computed `display` checked): open empty -> hidden; `A` -> shown; `Aadhaar` -> shown; `Aadh`/`A` -> shown; empty via Backspace -> hidden; spaces only -> hidden; select-all + delete -> hidden; programmatic clear + change -> hidden; X tap -> value empty, hidden, hint shown, still expanded and focused; close and reopen -> hidden. Emulator (real keyboard/keyevents): empty -> no X; typed `a` -> X; typed `adhaar` then Backspace x3 -> X stays; Backspace to empty -> X gone immediately; typed `pass` then tapped X -> field empty, no X, hint shown, field still expanded with keyboard; typed again -> X returns. `npm test` 46/46 (unchanged; logic tests only, no DOM harness).
 - Note: results can match on the original file name too, so a short query like `x` also lists a photo whose original file name contains it.
 
+## Share from search results (2026-10-17)
+- Every search result row now has a Material share icon (same path as the card share icon, not an emoji/character) on the right, vertically centred, 48x48 touch target, `aria-label` "Share document <name>, <category>". The row is a flex container with two sibling buttons (open + share, never nested); the existing result layout, metadata, highlight and thumbnails are unchanged.
+- How it works: the share button's click is handled by the results list's single delegated listener, which reads the row's unique document id, resolves the document from the current results Map (by id, never by name) and calls the existing `shareDoc()` -> `service.shareDocument(id)` used by the document cards (staged cache copy named after the document, FileProvider `content://` URI, temporary read grant, native chooser). So behaviour, MIME handling, the single-staged-copy rule and all error messages (missing file, no target app, sheet failure, sample documents) are identical to card sharing; nothing was duplicated. Ids are rebound on every re-render, so refreshing results while typing cannot attach a button to the wrong document.
+- Files changed: `www/js/app.js`, `www/css/styles.css` (plus this file).
+- Verified: `npm test` 46/46 (share logic already covered by the card-share tests). Browser preview: each row has exactly two sibling buttons, none nested, share button 48x48 and vertically centred, aria-label includes name and category, duplicates "Electricity Bill" keep distinct ids (37, 46) and category labels after a result refresh; share on a sample row shows the sample message; tapping the row still opens the document. Emulator with three documents all named "Aadhaar Card" (sample / real JPG / real PDF): search "aadhaar card" lists three rows with share icons; sharing row 3 opened the Sharesheet for `Aadhaar_Card.pdf` (FileProvider URI `.../share/Aadhaar_Card.pdf`, shared copy byte-identical to the stored PDF); sharing row 2 produced `Aadhaar_Card.jpg` (byte-identical to the stored JPG); sharing the sample row showed the sample message. The test PDF was deleted afterwards; the original JPG was untouched.
+- Not verified: WhatsApp (not installed), Gmail compose with attachment (needs account sign-in), a physical device, missing-file share from the search list on the device (same service path as the card, covered by unit tests).
+
 ## Known issues and blockers
 1. (Resolved) Android SDK/emulator now installed; build with `JAVA_HOME` = JDK 21 and `ANDROID_HOME` set works.
 3. Unverified assumptions to check on device: FilePicker `readData` result, `Filesystem.getUri` path accepted by `FileViewer.openDocumentFromLocalPath`, CapacitorSQLite `isConnection`/transaction calls with `transaction:false`, and `Capacitor.Plugins.<Name>` proxies without a bundler.
@@ -143,6 +150,7 @@ Inspected environment, initialised Capacitor/Android, built dashboard, database 
 ## Change history
 - 2026-10-16: initial implementation (see Git history).
 - 2026-10-16: 12-category dashboard, demo data, schema v2, tests 15 -> 23.
+- 2026-10-17: share button on every search result.
 - 2026-10-17: search clear (X) button only when the field has text (fixed hidden-attribute override).
 - 2026-10-17: expandable global search (name + date), tests 38 -> 46.
 - 2026-10-17: document sharing via the native Sharesheet, icon actions on cards, tests 34 -> 38.

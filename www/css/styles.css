@@ -58,9 +58,11 @@ body {
 .spinner { width: 16px; height: 16px; border: 2px solid var(--outline); border-top-color: var(--primary); border-radius: 50%; animation: spin .7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.result { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 64px; padding: 10px 12px; background: var(--surface); color: inherit; font: inherit; text-align: left; cursor: pointer; border: 1px solid var(--outline); border-radius: 12px; -webkit-tap-highlight-color: transparent; transition: background-color .12s; }
+.result-row { display: flex; align-items: center; background: var(--surface); border: 1px solid var(--outline); border-radius: 12px; overflow: hidden; }
+.result { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; min-height: 64px; padding: 10px 4px 10px 12px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; border: 0; -webkit-tap-highlight-color: transparent; transition: background-color .12s; }
+.icon-btn.result-share { width: 48px; height: 48px; margin: 0 6px 0 0; }
 .result:active { background: var(--primary-container); }
-.result:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
+.result:focus-visible { outline: 3px solid var(--primary); outline-offset: -3px; }
 .result .card-icon, .result-thumb { width: 44px; height: 44px; margin: 0; flex: none; }
 .result-thumb { object-fit: cover; border-radius: 10px; background: var(--primary-container); }
 .result-text { min-width: 0; flex: 1; }
