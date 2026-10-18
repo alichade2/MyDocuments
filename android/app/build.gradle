@@ -37,6 +37,7 @@ dependencies {
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
     implementation "androidx.biometric:biometric:$androidxBiometricVersion" // BiometricPrompt for App Lock
+    implementation "com.android.billingclient:billing:$billingVersion" // Google Play Billing (Pro purchase)
     implementation "com.google.android.gms:play-services-auth:$playServicesAuthVersion" // Authorization API (Google Drive backup, drive.file scope)
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"

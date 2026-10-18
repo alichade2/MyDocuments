@@ -21,3 +21,7 @@ android/app/release/
 
 # backups and test artefacts must never be committed (they hold personal documents)
 *.mydocsbackup
+
+# entitlement server secrets and data: signing key, pepper, generated promo codes, database
+backend/.secrets/
+backend/data/

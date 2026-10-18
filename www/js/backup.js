@@ -12,6 +12,7 @@ import { writeZip, base64ToBytes, bytesToBase64 } from './zip.js';
 import { openZip, ZipError } from './zipread.js';
 import { SCHEMA_VERSION } from './database.js';
 import { CUSTOM_ORDER_BASE } from './seed.js';
+import { UNRESTRICTED_ACCESS } from './access.js';
 
 export const BACKUP_EXTENSION = 'mydocsbackup';
 export const BACKUP_FORMAT = 'mydocs-backup';
@@ -110,7 +111,7 @@ export function parseManifest(text) {
  * @param {()=>Promise<void>} [deps.afterRestore]  e.g. documents.reconcile + thumbnail rebuild (best effort)
  * @param {()=>Promise<number|null>} [deps.freeSpace]  free bytes on the device, when it can be asked
  */
-export function createBackupService({ db, storage, scratch, afterRestore, freeSpace, now = () => new Date(), appVersion = '' }) {
+export function createBackupService({ db, storage, scratch, afterRestore, freeSpace, access = UNRESTRICTED_ACCESS, now = () => new Date(), appVersion = '' }) {
   const sourceOf = async (path) => ({ size: await scratch.size(path), read: (offset, length) => scratch.read(path, offset, length) });
   const utf8 = new TextDecoder();
 
@@ -194,6 +195,7 @@ export function createBackupService({ db, storage, scratch, afterRestore, freeSp
      * anywhere else: the caller decides what happens next. On any failure the half-written file is deleted.
      */
     async createBackup({ onProgress = () => {}, shouldCancel = () => false } = {}) {
+      access.requirePro('backup'); // Pro only: checked here, whichever screen or code path calls this
       const check = () => { if (shouldCancel()) throw new BackupError('BACKUP_CANCELLED', MSG.cancelled); };
       const createdAt = now();
       const fileName = backupFileName(createdAt);
@@ -288,6 +290,7 @@ export function createBackupService({ db, storage, scratch, afterRestore, freeSp
 
     /** Reads and validates an archive (already copied to `path` in the scratch folder) and describes it. Changes nothing. */
     async inspect(path) {
+      access.requirePro('backup');
       const { manifest } = await verify(path);
       return summarize(manifest, await scratch.size(path));
     },
@@ -298,6 +301,7 @@ export function createBackupService({ db, storage, scratch, afterRestore, freeSp
      * Throws BackupError; on failure the existing data is unchanged.
      */
     async restore(path, { mode = 'replace', onProgress = () => {} } = {}) {
+      access.requirePro('backup');
       if (mode !== 'replace' && mode !== 'merge') throw new BackupError('RESTORE_FAILED', MSG.restoreFailed);
       onProgress({ stage: 'validate' });
       const { manifest, zip, dbBase64 } = await verify(path, { keepDatabase: true });

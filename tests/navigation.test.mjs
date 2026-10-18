@@ -28,7 +28,7 @@ test('app wiring: one Manage Categories screen, opened from the drawer through t
   assert.doesNotMatch(app, /data-action="manage-categories"/);
   assert.equal((read('www/index.html').match(/id="categories-scroller"/g) ?? []).length, 1);
   assert.equal((app.match(/function openManageCategories/g) ?? []).length, 1);
-  assert.match(app, /function pageBack\(\) \{\s*if \(nav\.page === 'backup'\)[\s\S]*?\n  closeSettings\(\);\s*\}/); // only Backup & Restore nests (under Settings); everything else returns to the tab
+  assert.match(app, /function pageBack\(\) \{\s*if \(nav\.page === 'upgrade'\)[\s\S]*?if \(nav\.page === 'backup'\)[\s\S]*?\n  closeSettings\(\);\s*\}/); // only Upgrade to Pro and Backup & Restore nest (under Settings); everything else returns to the tab
   // the Add button stays fixed while only the list scrolls (unchanged markup)
   assert.match(read('www/index.html'), /class="fixed-page-bar"[\s\S]*id="cat-add"[\s\S]*id="cat-scroller"/);
 });

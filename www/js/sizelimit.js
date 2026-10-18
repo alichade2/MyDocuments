@@ -24,14 +24,24 @@ export function saveSizeLimitMb(mb, storage = globalThis.localStorage) {
   try { storage.setItem(SIZE_LIMIT_KEY, String(normalizeSizeLimitMb(mb))); return true; } catch { return false; }
 }
 
-let currentMb = DEFAULT_SIZE_LIMIT_MB;
-/** The limit currently in force (applies immediately to the next upload or capture). */
-export const getSizeLimitMb = () => currentMb;
+let currentMb = DEFAULT_SIZE_LIMIT_MB; // the user's saved preference
+let capMb = null; // set by the entitlement system: Basic users can never exceed this, whatever they have saved
+const effectiveMb = () => (capMb === null ? currentMb : Math.min(currentMb, capMb));
+/** The limit in force right now: the saved preference, lowered by the plan's cap (applies immediately to the next upload or capture). */
+export const getSizeLimitMb = effectiveMb;
+/** What the user chose in Settings (kept while a cap hides it, so upgrading brings it back). */
+export const getSizeLimitPreferenceMb = () => currentMb;
 export function setSizeLimitMb(mb) {
   currentMb = normalizeSizeLimitMb(mb);
-  return currentMb;
+  return effectiveMb();
 }
-export const sizeLimitBytes = (mb = currentMb) => mb * MB;
+export const getSizeCapMb = () => capMb;
+/** Upper bound from the current plan (null = none). Normalised to one of the allowed sizes; never raises the limit. */
+export function setSizeCapMb(mb) {
+  capMb = mb === null || mb === undefined ? null : normalizeSizeLimitMb(mb);
+  return effectiveMb();
+}
+export const sizeLimitBytes = (mb = effectiveMb()) => mb * MB;
 
 /** Real byte length of base64 data without decoding it. */
 export function byteLengthOfBase64(base64) {
@@ -63,7 +73,7 @@ export function formatSize(bytes, { ceil = false, atLeast = false } = {}) {
  *   FILE_TOO_LARGE     more than the selected limit (which is 15 MB or lower)
  * kind: 'file' (picked from storage) or 'capture' (camera image); only the wording differs.
  */
-export function checkSize(bytes, { kind = 'file', limitMb: requested = currentMb, atLeast = false } = {}) {
+export function checkSize(bytes, { kind = 'file', limitMb: requested = effectiveMb(), atLeast = false } = {}) {
   const limitMb = normalizeSizeLimitMb(requested);
   const size = typeof bytes === 'number' ? bytes : Number.NaN;
   if (!Number.isFinite(size) || size < 0) {

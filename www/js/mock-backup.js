@@ -2,11 +2,12 @@
 // A tester can steer them with globalThis.__mydocsPreviewBackup = { saveCancelled, driveError, inspectError, restoreError, missingFiles }.
 import { BackupError, backupFileName } from './backup.js';
 import { DriveError } from './drive.js';
+import { UNRESTRICTED_ACCESS } from './access.js';
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const knob = () => globalThis.__mydocsPreviewBackup ?? {};
 
-export function createMockBackup() {
+export function createMockBackup({ access = UNRESTRICTED_ACCESS } = {}) {
   const scratchFiles = new Map();
   const scratch = {
     read: async (path, offset, length) => new Uint8Array(Math.max(0, Math.min(length, 1_234_567 - offset))),
@@ -14,6 +15,7 @@ export function createMockBackup() {
   };
   const backup = {
     async createBackup({ onProgress = () => {}, shouldCancel = () => false } = {}) {
+      access.requirePro('backup');
       onProgress({ stage: 'prepare' });
       await wait(250);
       onProgress({ stage: 'collect' });
@@ -34,11 +36,13 @@ export function createMockBackup() {
       };
     },
     async inspect() {
+      access.requirePro('backup');
       await wait(300);
       if (knob().inspectError) throw new BackupError(knob().inspectError, 'This file is not a valid MyDocs backup.');
       return { createdAt: '2026-10-01T09:30:00.000Z', formatVersion: 1, schemaVersion: 5, size: 1_234_567, categories: 15, customCategories: 2, documents: 64, files: 6, withoutFile: Number(knob().missingFiles ?? 0) };
     },
     async restore(path, { mode = 'replace', onProgress = () => {} } = {}) {
+      access.requirePro('backup');
       onProgress({ stage: 'validate' });
       await wait(300);
       for (let i = 0; i <= 6; i++) { onProgress({ stage: 'restore', done: i, total: 6 }); await wait(150); }
@@ -55,6 +59,7 @@ export function createMockBackup() {
   };
   const drive = {
     async upload({ name, onProgress, shouldCancel }) {
+      access.requirePro('drive');
       onProgress?.({ stage: 'sign-in' }); await wait(250);
       if (knob().driveError) throw new DriveError(knob().driveError, 'Could not reach Google Drive. Check your internet connection and try again. Your backup file has been kept.');
       onProgress?.({ stage: 'folder' }); await wait(250);

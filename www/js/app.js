@@ -15,12 +15,20 @@ import { createBackupService } from './backup.js';
 import { nativeBackupAdapters } from './backup-native.js';
 import { createDriveClient } from './drive.js';
 import { createMockBackup } from './mock-backup.js';
-import { SIZE_LIMIT_OPTIONS_MB, loadSizeLimitMb, saveSizeLimitMb, setSizeLimitMb, getSizeLimitMb, formatSize as formatSizeText } from './sizelimit.js';
+import { SIZE_LIMIT_OPTIONS_MB, loadSizeLimitMb, saveSizeLimitMb, setSizeLimitMb, setSizeCapMb, getSizeLimitMb, formatSize as formatSizeText } from './sizelimit.js';
+import { createAccessPolicy, EntitlementError, BASIC_LIMITS, PLAN } from './access.js';
+import { createEntitlements } from './entitlements.js';
+import { createBilling, BillingError } from './billing.js';
+import { createPromoClient, PromoError, isBackendConfigured } from './promo.js';
+import { createMockPlayBilling } from './mock-billing.js';
+import { PRO_PRODUCT_ID, BACKEND_URL, PLAY_VERIFY_MODE, PLAY_LICENSE_KEY, PLAY_GRACE_DAYS, SIGNING_PUBLIC_KEY } from './entitlement-config.js';
+import { importPublicKey } from './entitlement-token.js';
 import { t, tn, countLabel, categoryLabel, errorText, LANGUAGES, loadLanguage, saveLanguage, setLanguage, getLanguage, applyStaticTranslations } from './i18n.js';
 
 const $ = (id) => document.getElementById(id);
 setLanguage(loadLanguage()); // before anything is rendered; English unless the user chose otherwise
 setSizeLimitMb(loadSizeLimitMb()); // document size limit: 5 MB unless the user chose another
+setSizeCapMb(BASIC_LIMITS.maxSizeMb); // fail-safe: Basic until the entitlement has been read
 applyStaticTranslations();
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -33,6 +41,9 @@ const FILE_TYPES = {
 };
 
 let service;
+let entitlements = null; // createEntitlements, set in init()
+/** The single place that decides what the current plan may do (document count, size cap, Backup, Drive). */
+const access = createAccessPolicy(() => entitlements?.effective() ?? { plan: PLAN.BASIC });
 /** categoryId -> { cat, count, countEl, cardEl } (dashboard cards are built once) */
 const cards = new Map();
 const view = { categoryId: null, docs: new Map(), scrollY: 0 };
@@ -72,6 +83,8 @@ function showMessage(text) {
 
 async function guarded(fn) {
   try { return await fn(); } catch (err) {
+    if (err instanceof EntitlementError) { showProPrompt(errorText(err)); return; }
+    if (!access.isPro() && /^FILE_TOO_LARGE/.test(err?.code ?? '')) { showProPrompt(t('err.proSize')); return; }
     if (err?.code !== 'DEMO_DOCUMENT') console.error('MyDocs error:', err?.code || err?.name || 'error', err?.code ? '' : String(err?.stack ?? '').replace(/\s+/g, ' ').slice(0, 300));
     showMessage(errorText(err) || String(err));
   }
@@ -415,6 +428,7 @@ function wireEvents() {
     if (e.target.closest('[data-action="theme"]')) openThemeDialog();
     else if (e.target.closest('[data-action="language"]')) openLanguageDialog();
     else if (e.target.closest('[data-action="backup"]')) openBackupPage();
+    else if (e.target.closest('[data-action="upgrade"]')) openUpgradePage();
     else if (e.target.closest('[data-action="app-lock"]')) toggleAppLock();
   });
   $('settings-list').addEventListener('change', (e) => {
@@ -867,7 +881,7 @@ let theme = loadTheme();
 
 function renderSettings(info = settingsInfo) {
   settingsInfo = info;
-  const sections = buildSettingsSections({ ...info, theme, appLock: appLock.enabled, sizeLimitMb: getSizeLimitMb(), languageName: t(`lang.name.${getLanguage()}`) });
+  const sections = buildSettingsSections({ ...info, theme, appLock: appLock.enabled, sizeLimitMb: getSizeLimitMb(), plan: planInfo(), formatDate: formatPlanDate, languageName: t(`lang.name.${getLanguage()}`) });
   $('settings-list').replaceChildren(...sections.map((sec) => el('section', { class: 'settings-section', 'aria-label': sec.title },
     el('h2', {}, sec.title),
     el('ul', { class: 'settings-rows' }, ...sec.rows.map((r) => {
@@ -1093,6 +1107,177 @@ function openThemeDialog() {
   renderThemeOptions();
   $('theme-dialog').showModal();
   $('th-options').querySelector('input:checked')?.focus({ preventScroll: true });
+}
+
+/* ---------- Plan, Upgrade to Pro and promo codes (the rules live in access.js / entitlements.js; this is only the screen) ---------- */
+
+const DEVICE_ID_KEY = 'mydocs.deviceId';
+let deviceIdValue = '';
+const deviceId = () => deviceIdValue;
+let billing = null; // createBilling (Google Play) - null when no Play plugin exists
+let promo = null; // createPromoClient
+const upgradeUi = { busy: false, product: null, productLoading: false };
+
+const randomHex = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
+
+/** A stable per-install identity: the native one when available (survives reinstall), else a random id kept in storage. */
+async function resolveDeviceId(plugin) {
+  try { const r = await plugin?.deviceId?.(); if (r?.deviceId) return String(r.deviceId); } catch { /* fall back below */ }
+  try {
+    let id = localStorage.getItem(DEVICE_ID_KEY);
+    if (!/^[0-9a-f]{32}$/.test(id ?? '')) { id = randomHex(); localStorage.setItem(DEVICE_ID_KEY, id); }
+    return id;
+  } catch { return randomHex(); }
+}
+
+/** Where the promo server is: BACKEND_URL, or (testing only, loopback addresses only) the value in localStorage "mydocs.devApiBase". */
+function backendUrl() {
+  try {
+    const dev = localStorage.getItem('mydocs.devApiBase');
+    if (dev && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/.test(dev)) return dev;
+  } catch { /* storage unavailable */ }
+  return BACKEND_URL;
+}
+
+const formatPlanDate = (ms) => new Date(ms).toLocaleDateString(getLanguage() === 'hi' ? 'hi-IN' : 'en-GB', { dateStyle: 'long' });
+
+function planInfo() { return entitlements?.effective() ?? { plan: PLAN.BASIC, source: 'none', lifetime: false, expiresAt: null }; }
+
+function planTexts() {
+  const p = planInfo();
+  if (p.plan !== PLAN.PRO) return { title: t('up.currentBasic'), desc: t('plan.descBasic') };
+  if (p.source === 'play') return { title: t('up.currentProPlay'), desc: t('plan.descProLifetime') };
+  if (p.lifetime) return { title: t('up.currentProPromoLifetime'), desc: t('plan.descProLifetime') };
+  return { title: t('up.currentProPromo'), desc: t('plan.descProUntil', { date: formatPlanDate(p.expiresAt) }) };
+}
+
+function setUpStatus(text, kind = 'info') {
+  const s = $('up-status');
+  s.textContent = text ?? '';
+  s.hidden = !text;
+  s.dataset.kind = kind;
+}
+
+function renderUpgradePage() {
+  const { title, desc } = planTexts();
+  $('up-plan').textContent = title;
+  $('up-plan-desc').textContent = desc;
+  const p = planInfo();
+  const ownsPlay = p.plan === PLAN.PRO && p.source === 'play';
+  $('up-buy-card').hidden = ownsPlay; // a purchased lifetime Pro needs no purchase button
+  const product = upgradeUi.product;
+  $('up-product').textContent = product ? product.name : '';
+  $('up-product').hidden = !product;
+  $('up-buy').textContent = product ? t('up.buyPrice', { price: product.price }) : t('up.buy');
+  for (const id of ['up-buy', 'up-restore', 'up-redeem']) $(id).disabled = upgradeUi.busy;
+  $('up-code').disabled = upgradeUi.busy;
+}
+
+function setUpgradeBusy(on, text) {
+  upgradeUi.busy = on;
+  if (text) setUpStatus(text);
+  renderUpgradePage();
+}
+
+/** Reads the product name and the price in the user's currency from Google Play (nothing is hard-coded). */
+async function loadUpgradeProduct() {
+  if (!billing || upgradeUi.productLoading || upgradeUi.product) return;
+  upgradeUi.productLoading = true;
+  setUpStatus(t('up.loading'));
+  try {
+    upgradeUi.product = await billing.loadProduct();
+    setUpStatus('');
+  } catch (err) {
+    setUpStatus(errorText(err), 'error');
+  } finally {
+    upgradeUi.productLoading = false;
+    renderUpgradePage();
+  }
+}
+
+async function buyPro() {
+  if (upgradeUi.busy) return;
+  setUpgradeBusy(true, t('up.purchasing'));
+  try {
+    if (!billing) throw new BillingError('UNAVAILABLE', 'Google Play purchases are not available on this device or in this build.');
+    const result = await billing.purchase();
+    setUpStatus(result.status === 'purchased' ? t('up.purchased') : result.status === 'pending' ? t('up.pending') : t('up.cancelled'), result.status === 'purchased' ? 'success' : 'info');
+  } catch (err) {
+    console.error('MyDocs purchase error:', err?.code || err?.name || 'error');
+    setUpStatus(errorText(err), 'error');
+  } finally {
+    setUpgradeBusy(false);
+  }
+}
+
+async function restorePurchases() {
+  if (upgradeUi.busy) return;
+  setUpgradeBusy(true, t('up.restoring'));
+  try {
+    let status = 'none';
+    let playError = null;
+    try { status = billing ? (await billing.restore()).status : 'none'; } catch (err) { playError = err; }
+    if (status === 'restored') { setUpStatus(t('up.restored'), 'success'); return; }
+    let promoRestored = 0;
+    try { promoRestored = promo ? await promo.restore() : 0; } catch { /* promo server not reachable / configured: not an error for a restore */ }
+    if (promoRestored > 0) setUpStatus(t('up.restoredPromo'), 'success');
+    else if (playError) setUpStatus(errorText(playError), 'error');
+    else setUpStatus(status === 'pending' ? t('up.pending') : t('up.none'));
+  } finally {
+    setUpgradeBusy(false);
+  }
+}
+
+async function redeemPromo() {
+  if (upgradeUi.busy) return;
+  setUpgradeBusy(true, t('up.redeeming'));
+  try {
+    const result = await promo.redeem($('up-code').value);
+    $('up-code').value = '';
+    setUpStatus(result.expiresAt == null ? t('up.promoLifetime') : t('up.promoOk', { date: formatPlanDate(result.expiresAt) }), 'success');
+  } catch (err) {
+    if (!(err instanceof PromoError)) console.error('MyDocs promo error:', err?.code || err?.name || 'error');
+    setUpStatus(errorText(err, 'err.promoServer'), 'error');
+  } finally {
+    setUpgradeBusy(false);
+  }
+}
+
+/** Explains which Pro feature was needed and offers Upgrade / Redeem; shown only after the user tried something, never on its own. */
+function showProPrompt(text) {
+  if ($('pro-dialog').open) return;
+  $('pr-text').textContent = text;
+  $('pro-dialog').showModal();
+  $('pr-upgrade').focus({ preventScroll: true });
+}
+
+function closeProPrompt() { if ($('pro-dialog').open) $('pro-dialog').close(); }
+
+function wireUpgrade() {
+  $('up-buy').addEventListener('click', buyPro);
+  $('up-restore').addEventListener('click', restorePurchases);
+  $('up-redeem').addEventListener('click', redeemPromo);
+  $('up-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); redeemPromo(); } });
+  $('pr-close').addEventListener('click', closeProPrompt);
+  $('pr-upgrade').addEventListener('click', () => { closeProPrompt(); openUpgradePage(); });
+  $('pr-redeem').addEventListener('click', () => { closeProPrompt(); openUpgradePage(); $('up-code').focus({ preventScroll: true }); });
+}
+
+/** Upgrade to Pro sits under Settings, but can also be opened from a main tab (e.g. from a "Pro required" prompt). */
+function openUpgradePage() {
+  if (nav.page === 'upgrade' || motion.busy || allState.busy) return;
+  if (nav.page === 'backup') pageBack(); // back to Settings first
+  if (nav.page === 'categories') return;
+  if (nav.page === null) { openPage('settings'); if (nav.page !== 'settings') return; nav.upgradeFromTab = true; } else nav.upgradeFromTab = false;
+  nav.page = 'upgrade';
+  $('settings-scroller').hidden = true;
+  $('upgrade-scroller').hidden = false;
+  $('upgrade-scroller').scrollTop = 0;
+  $('app-title').textContent = t('up.title');
+  setUpStatus('');
+  renderUpgradePage();
+  loadUpgradeProduct();
+  $('page-back').focus({ preventScroll: true });
 }
 
 /* ---------- Backup & Restore (logic in backup.js / drive.js; this is only the screen) ---------- */
@@ -1374,6 +1559,7 @@ function wireBackup() {
 /** The settings sub-page: Settings -> Backup & Restore (Back returns to Settings). */
 function openBackupPage() {
   if (nav.page !== 'settings') return;
+  if (!access.canUse('backup')) { showProPrompt(t('err.proBackup')); return; } // Basic: explained, not opened
   nav.page = 'backup';
   $('settings-scroller').hidden = true;
   $('backup-scroller').hidden = false;
@@ -1432,10 +1618,12 @@ function refreshLanguageUI() {
   if (nav.page === 'categories') refreshManageList();
   if (appLock.locked) { setLockMessage(t('lock.msg'), false); $('lock-unlock').textContent = t('lock.unlock'); }
   renderBackupPage();
+  renderUpgradePage();
 }
 
 /** Applies and stores the document size limit right away: the next upload or capture is judged against it. */
 function setDocumentSizeLimit(value) {
+  if (Number(value) > BASIC_LIMITS.maxSizeMb && !access.canUse('sizeOptions')) { renderSettings(); showProPrompt(t('err.proSize')); return; }
   const mb = setSizeLimitMb(value);
   saveSizeLimitMb(mb);
   renderSettings();
@@ -1452,7 +1640,7 @@ function setAppLanguage(next) {
 }
 
 /** Drawer pages (Manage Categories, Settings): one page at a time, opened from either tab, Back returns to that tab. */
-const PAGES = { settings: { titleKey: 'menu.settings', scroller: 'settings-scroller' }, categories: { titleKey: 'menu.manageCategories', scroller: 'categories-scroller' }, backup: { titleKey: 'bk.title', scroller: 'backup-scroller' } };
+const PAGES = { settings: { titleKey: 'menu.settings', scroller: 'settings-scroller' }, categories: { titleKey: 'menu.manageCategories', scroller: 'categories-scroller' }, backup: { titleKey: 'bk.title', scroller: 'backup-scroller' }, upgrade: { titleKey: 'up.title', scroller: 'upgrade-scroller' } };
 
 function openPage(name) {
   if (nav.page === name || motion.busy || allState.busy) return; // repeated taps do nothing
@@ -1478,6 +1666,14 @@ function openSettings() {
 
 /** Back arrow / Android Back on a drawer page: returns to the tab (and scroll position) it was opened from. */
 function pageBack() {
+  if (nav.page === 'upgrade') { // Upgrade to Pro: back to Settings, or straight to the tab it was opened from
+    $('upgrade-scroller').hidden = true;
+    nav.page = 'settings';
+    $('settings-scroller').hidden = false;
+    $('app-title').textContent = t('menu.settings');
+    if (nav.upgradeFromTab) closeSettings();
+    return;
+  }
   if (nav.page === 'backup') { // Backup & Restore sits under Settings
     nav.page = 'settings';
     $('backup-scroller').hidden = true;
@@ -1500,6 +1696,7 @@ function closeSettings() {
   if (nav.page === null) return;
   $('categories-scroller').hidden = true;
   $('backup-scroller').hidden = true;
+  $('upgrade-scroller').hidden = true;
   nav.page = null;
   document.body.classList.remove('page-settings');
   $('page-back').hidden = true;
@@ -1527,6 +1724,7 @@ function wireBackButton() {
     if ($('cdel-dialog').open) { if (!catUi.saving) $('cdel-dialog').close(); return; }
     if ($('theme-dialog').open) { $('theme-dialog').close(); return; }
     if ($('lang-dialog').open) { $('lang-dialog').close(); return; }
+    if ($('pro-dialog').open) { closeProPrompt(); return; }
     if ($('bk-progress-dialog').open) return; // backup / restore running
     if ($('bk-ready-dialog').open) { closeBackupReady(); return; }
     if ($('bk-restore-dialog').open) { closeRestoreDialog(); return; }
@@ -1541,31 +1739,64 @@ function wireBackButton() {
   });
 }
 
+/** Reads the stored entitlement, then keeps size cap, screens and the expiry timer in step with it. Runs before any service is used. */
+async function setupEntitlements(playPlugin) {
+  deviceIdValue = await resolveDeviceId(playPlugin);
+  entitlements = createEntitlements({ publicKey: importPublicKey(SIGNING_PUBLIC_KEY), deviceId, playGraceDays: PLAY_GRACE_DAYS });
+  await entitlements.init();
+  setSizeCapMb(access.sizeCapMb());
+  entitlements.subscribe(() => {
+    setSizeCapMb(access.sizeCapMb());
+    renderSettings();
+    renderUpgradePage();
+    if (!access.isPro() && nav.page === 'backup') pageBack(); // Pro ended while Backup & Restore was open
+  });
+  billing = createBilling({
+    plugin: playPlugin, productId: PRO_PRODUCT_ID, entitlements, deviceId, isBackendConfigured,
+    config: { mode: PLAY_VERIFY_MODE, backendUrl: backendUrl(), licenseKey: PLAY_LICENSE_KEY },
+  });
+  promo = createPromoClient({ baseUrl: backendUrl(), deviceId, entitlements });
+  let expiryTimer;
+  const scheduleExpiry = () => { // a temporary Pro ends on time even while the app stays open
+    clearTimeout(expiryTimer);
+    const ms = entitlements.msUntilExpiry();
+    if (ms !== null) expiryTimer = setTimeout(() => { entitlements.tick(); scheduleExpiry(); }, Math.min(ms + 500, 2_000_000_000));
+  };
+  entitlements.subscribe(scheduleExpiry);
+  scheduleExpiry();
+  const recheck = () => { entitlements.tick(); billing.refresh().catch(() => {}); }; // Google Play stays the source of truth
+  recheck();
+  globalThis.Capacitor?.Plugins?.App?.addListener?.('resume', recheck);
+}
+
 async function init() {
   wireEvents();
   wireAppLock();
   wireBackup();
+  wireUpgrade();
   // Lock first: with App Lock on, the page is already hidden (lock-init.js) and the system prompt is requested right away.
   if (appLock.start()) setTimeout(promptUnlock, 300);
+  await setupEntitlements(isNativePlatform() ? globalThis.Capacitor?.Plugins?.PlayBilling : createMockPlayBilling());
   if (isNativePlatform()) {
     wireBackButton();
     const db = createDatabase(capacitorSqliteDriver());
     await db.init();
     const { storage, picker, viewer, camera, sharer } = capacitorAdapters(undefined, (fn) => appLock.external(fn));
-    service = createDocumentService({ db, storage, picker, viewer, camera, sharer, thumbnailer: createThumbnail });
+    service = createDocumentService({ db, storage, picker, viewer, camera, sharer, thumbnailer: createThumbnail, access });
     await service.reconcile();
     backupFiles = nativeBackupAdapters(undefined, (fn) => appLock.external(fn));
     await backupFiles.cleanup(); // temporary backup / restore files left by an earlier run
     backup = createBackupService({
-      db, storage, scratch: backupFiles.scratch, freeSpace: backupFiles.freeSpace,
+      db, storage, scratch: backupFiles.scratch, freeSpace: backupFiles.freeSpace, access,
       afterRestore: async () => { await service.reconcile(); await service.rebuildThumbnails(); },
     });
-    drive = createDriveClient({ authorize: backupFiles.authorizeDrive });
+    drive = createDriveClient({ authorize: backupFiles.authorizeDrive, access });
     globalThis.__mydocsBackup = backup; // device testing aids (not used by the app itself)
     globalThis.__mydocsService = service;
   } else {
-    service = createMockService();
-    ({ backup, native: backupFiles, drive } = createMockBackup());
+    service = createMockService({ access });
+    ({ backup, native: backupFiles, drive } = createMockBackup({ access }));
+    globalThis.__mydocsEntitlements = entitlements; // browser preview only: lets tests inspect / reset the plan
     globalThis.__mydocsPreview = service; // browser preview only: lets tests inspect the in-memory ZIP
     const b = $('banner');
     b.textContent = t('banner.preview');

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#1f5fbf">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self' http://localhost https://localhost capacitor://localhost https://www.googleapis.com">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self' http://localhost https://localhost capacitor://localhost https://www.googleapis.com https://mydocs-api.example.com">
   <title>MyDocs</title>
   <script src="js/theme-init.js"></script>
   <script src="js/lock-init.js"></script>
@@ -101,6 +101,52 @@
     </main>
   </div>
 
+  <div id="upgrade-scroller" class="scroller" hidden>
+    <main>
+      <section id="upgrade-view" aria-labelledby="up-heading">
+        <h2 id="up-heading" class="visually-hidden" data-i18n="up.title">Upgrade to Pro</h2>
+        <div class="backup-card">
+          <h3 data-i18n="up.current">Your plan</h3>
+          <p id="up-plan" class="up-plan"></p>
+          <p id="up-plan-desc"></p>
+        </div>
+        <div class="up-compare">
+          <div class="up-col">
+            <h3 data-i18n="up.basicTitle">MyDocs Basic</h3>
+            <ul>
+              <li data-i18n="up.basic1">Up to 5 saved documents</li>
+              <li data-i18n="up.basic2">Maximum 3 MB per document</li>
+              <li data-i18n="up.basic3">Backup and Restore unavailable</li>
+            </ul>
+          </div>
+          <div class="up-col up-pro">
+            <h3 data-i18n="up.proTitle">MyDocs Pro</h3>
+            <ul>
+              <li data-i18n="up.pro1">Unlimited documents (subject to your device storage)</li>
+              <li data-i18n="up.pro2">Document size up to 15 MB (3, 5, 8, 12 or 15 MB)</li>
+              <li data-i18n="up.pro3">Backup and Restore</li>
+              <li data-i18n="up.pro4">Google Drive backup</li>
+              <li data-i18n="up.pro5">Full access to all premium features</li>
+            </ul>
+          </div>
+        </div>
+        <div class="backup-card" id="up-buy-card">
+          <p id="up-product" class="bk-file"></p>
+          <p id="up-note" data-i18n="up.oneTime">One-time purchase, no subscription.</p>
+          <button type="button" class="btn filled backup-btn" id="up-buy" data-i18n="up.buy">Upgrade to Pro</button>
+          <button type="button" class="btn outlined backup-btn" id="up-restore" data-i18n="up.restore">Restore Purchases</button>
+        </div>
+        <div class="backup-card">
+          <h3 data-i18n="up.promoTitle">Redeem Promo Code</h3>
+          <label for="up-code" data-i18n="up.promoLabel">Promo code</label>
+          <input id="up-code" type="text" maxlength="40" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Enter promo code" data-i18n-placeholder="up.promoPlaceholder">
+          <button type="button" class="btn filled backup-btn" id="up-redeem" data-i18n="up.redeem">Redeem</button>
+        </div>
+        <p id="up-status" class="bk-status" role="status" hidden></p>
+      </section>
+    </main>
+  </div>
+
   <div id="backup-scroller" class="scroller" hidden>
     <main>
       <section id="backup-view" aria-labelledby="bk-heading">
@@ -188,6 +234,16 @@
     <h3 id="th-title" data-i18n="theme.title">Choose theme</h3>
     <div id="th-options" role="radiogroup" aria-labelledby="th-title"></div>
     <div class="dialog-actions"><button type="button" class="btn text" id="th-close" data-i18n="common.close">Close</button></div>
+  </dialog>
+
+  <dialog id="pro-dialog" aria-labelledby="pr-title">
+    <h3 id="pr-title" data-i18n="pro.title">MyDocs Pro</h3>
+    <p id="pr-text" class="cdel-text"></p>
+    <div class="bk-actions">
+      <button type="button" class="btn filled" id="pr-upgrade" data-i18n="pro.upgrade">Upgrade to Pro</button>
+      <button type="button" class="btn outlined" id="pr-redeem" data-i18n="pro.redeem">Redeem Promo Code</button>
+    </div>
+    <div class="dialog-actions"><button type="button" class="btn text" id="pr-close" data-i18n="pro.notNow">Not now</button></div>
   </dialog>
 
   <dialog id="bk-progress-dialog" class="progress-dialog" aria-labelledby="bkp-text">

@@ -46,7 +46,7 @@ function httpError(status) {
  * @param {()=>Promise<{accessToken:string}>} deps.authorize   native Google authorization (drive.file)
  * @param {typeof fetch} [deps.fetchImpl]
  */
-export function createDriveClient({ authorize, fetchImpl = (...a) => globalThis.fetch(...a) }) {
+export function createDriveClient({ authorize, fetchImpl = (...a) => globalThis.fetch(...a), access = { requirePro() {} } }) {
   async function token() {
     let res;
     try { res = await authorize(); } catch (e) {
@@ -159,6 +159,7 @@ export function createDriveClient({ authorize, fetchImpl = (...a) => globalThis.
      * @param {{name:string, size:number, readRange:(offset:number,length:number)=>Promise<Uint8Array>, onProgress?:Function, shouldCancel?:Function}} file
      */
     async upload({ name, size, readRange, onProgress, shouldCancel }) {
+      access.requirePro('drive'); // Pro only: no sign-in or request is made without the entitlement
       onProgress?.({ stage: 'sign-in' });
       let accessToken = await token();
       onProgress?.({ stage: 'folder' });

@@ -3,6 +3,7 @@
 import { CATEGORIES, CUSTOM_ORDER_BASE, demoDocuments } from './seed.js';
 import { DEMO_MESSAGE, DocumentError, validateName, validateCategoryName, extensionOf, enforceSize, SUPPORTED_TYPES, IMAGE_TYPES } from './documents.js';
 import { byteLengthOfBase64 } from './sizelimit.js';
+import { UNRESTRICTED_ACCESS } from './access.js';
 import { DEFAULT_CATEGORY_ICON, isChoosableIcon } from './icons.js';
 import { createThumbnail } from './images.js';
 import { matchesDocument, normalizeQuery } from './search.js';
@@ -28,7 +29,7 @@ function previewData() {
   return 'AAAA'.repeat(Math.ceil(n / 3)).slice(0, Math.ceil(n / 3) * 4); // decodes to ~n bytes
 }
 
-export function createMockService() {
+export function createMockService({ access = UNRESTRICTED_ACCESS } = {}) {
   const categories = CATEGORIES.map((c, i) => ({ id: i + 1, slug: c.slug, name: c.name, icon: c.icon, sort_order: i + 1, is_custom: 0, created_at: '2026-01-01T00:00:00.000Z' }));
   const idBySlug = new Map(categories.map((c) => [c.slug, c.id]));
   let nextId = 1;
@@ -43,6 +44,7 @@ export function createMockService() {
   const categoryOf = (id) => { const c = categories.find((x) => x.id === id); if (!c) throw new DocumentError('INVALID_CATEGORY', 'Unknown category.'); return c; };
   const dupName = (name, exceptId) => categories.some((c) => c.id !== exceptId && c.name.toLowerCase() === name.toLowerCase());
   const withCount = (c) => ({ id: c.id, slug: c.slug, name: c.name, icon: c.icon, sortOrder: c.sort_order, isCustom: c.is_custom === 1, createdAt: c.created_at, docCount: docs.filter((d) => d.categoryId === c.id).length });
+  const countDocuments = () => docs.filter((d) => !d.isDemo).length;
   const mock = { lastZip: null };
   return Object.assign(mock, {
     listCategories: async () => [...categories].sort((a, b) => a.sort_order - b.sort_order || a.id - b.id),
@@ -83,18 +85,21 @@ export function createMockService() {
     // Browser preview: stand-ins for the native picker and camera (no real file access).
     // __mydocsPreviewBytes lets a tester make the next picked / captured file any size (the data is real, so it is judged like a real file).
     pickFile: async () => {
+      access.assertCanCreateDocument(countDocuments());
       const data = previewData() ?? 'QUJD';
       const size = byteLengthOfBase64(data);
       enforceSize(size, 'file');
       return { name: `Sample_upload_${nextId}.pdf`, mimeType: 'application/pdf', size, data };
     },
     capturePhoto: async () => {
+      access.assertCanCreateDocument(countDocuments());
       const data = previewData() ?? fakePhoto(++shots);
       const size = byteLengthOfBase64(data);
       enforceSize(size, 'capture');
       return { name: `Captured_preview_${shots}.jpg`, mimeType: 'image/jpeg', size, data, source: 'camera' };
     },
     importFile: async (categoryId, file, displayName) => {
+      access.assertCanCreateDocument(countDocuments());
       const ext = extensionOf(file?.name);
       if (!SUPPORTED_TYPES[ext]) throw new DocumentError('UNSUPPORTED_TYPE', `Unsupported file type ".${ext || '?'}".`);
       const actualSize = byteLengthOfBase64(file.data);
@@ -113,6 +118,8 @@ export function createMockService() {
       docs.push(doc);
       return { ...doc };
     },
+    assertCanCreateDocument: async () => access.assertCanCreateDocument(countDocuments()),
+    countDocuments: async () => countDocuments(),
     thumbnailSrc: async (doc) => thumbs.get(doc.id) ?? null,
     imageSrc: async (id) => {
       const d = docs.find((x) => x.id === id);

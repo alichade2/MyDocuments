@@ -71,15 +71,15 @@ export function memScratch() {
 }
 
 /** A complete app instance: database, documents, backup service. */
-export async function makeApp({ file, wal, now, freeSpace, thumbnailer } = {}) {
+export async function makeApp({ file, wal, now, freeSpace, thumbnailer, access } = {}) {
   const driver = nodeDriver({ file, wal });
   const db = createDatabase(driver);
   await db.init();
   const storage = memStorage();
   const scratch = memScratch();
-  const docs = createDocumentService({ db, storage, thumbnailer });
+  const docs = createDocumentService({ db, storage, thumbnailer, ...(access ? { access } : {}) });
   const backup = createBackupService({
-    db, storage, scratch, now, freeSpace,
+    db, storage, scratch, now, freeSpace, ...(access ? { access } : {}),
     afterRestore: async () => { await docs.reconcile(); await docs.rebuildThumbnails(); },
   });
   return { driver, db, storage, scratch, docs, backup };

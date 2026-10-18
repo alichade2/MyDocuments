@@ -9,6 +9,7 @@ ext {
     androidxFragmentVersion = '1.8.9'
     androidxBiometricVersion = '1.1.0'
     playServicesAuthVersion = '21.4.0'
+    billingVersion = '8.0.0'
     coreSplashScreenVersion = '1.2.0'
     androidxWebkitVersion = '1.14.0'
     junitVersion = '4.13.2'

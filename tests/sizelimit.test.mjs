@@ -365,7 +365,7 @@ test('size messages are translated, keep the numbers, and English stays unchange
 test('app wiring: the saved limit is loaded at start, changes apply immediately, and no screen has its own size rule', () => {
   const app = read('www/js/app.js');
   assert.match(app, /setSizeLimitMb\(loadSizeLimitMb\(\)\)/);
-  assert.match(app, /function setDocumentSizeLimit\(value\) \{\s*const mb = setSizeLimitMb\(value\);\s*saveSizeLimitMb\(mb\);/);
+  assert.match(app, /function setDocumentSizeLimit\(value\) \{\s*if \(Number\(value\) > BASIC_LIMITS\.maxSizeMb[^\n]*\n\s*const mb = setSizeLimitMb\(value\);\s*saveSizeLimitMb\(mb\);/);
   assert.doesNotMatch(app, /MAX_FILE_BYTES|1048576|\* 1024/);
   const docs = read('www/js/documents.js');
   assert.doesNotMatch(docs, /MAX_FILE_BYTES|25 \* 1024/);

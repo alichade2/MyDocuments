@@ -5,7 +5,8 @@ import { normalizeQuery, escapeLike, parseDateQuery } from './search.js';
 import { writeZip, uniqueEntryPaths, ZIP_LIMITS, bytesToBase64 } from './zip.js';
 import { DEFAULT_CATEGORY_ICON, isChoosableIcon } from './icons.js';
 import { CUSTOM_ORDER_BASE } from './seed.js';
-import { checkSize, sizeLimitBytes, byteLengthOfBase64, MB } from './sizelimit.js';
+import { checkSize, sizeLimitBytes, getSizeLimitMb, byteLengthOfBase64, MB } from './sizelimit.js';
+import { UNRESTRICTED_ACCESS } from './access.js';
 
 export const DOCS_DIR = 'documents';
 const SHARE_DIR = 'share';
@@ -104,7 +105,12 @@ function toRecord(r) {
  * @param {object} [deps.sharer] { share({uri, title}) -> true | false(cancelled) }  (throws DocumentError on failure)
  * @param {Function} [deps.thumbnailer] async (base64, mimeType) -> base64 JPEG thumbnail | null
  */
-export function createDocumentService({ db, storage, picker, viewer, camera, sharer, thumbnailer, now = () => new Date().toISOString(), uuid = () => crypto.randomUUID() }) {
+export function createDocumentService({ db, storage, picker, viewer, camera, sharer, thumbnailer, access = UNRESTRICTED_ACCESS, now = () => new Date().toISOString(), uuid = () => crypto.randomUUID() }) {
+  // Plan rules (see access.js) are applied HERE, at the persistence boundary, not only in the screens.
+  /** The size limit for the next document: the saved setting, never above what the current plan allows. */
+  const limitMb = () => { const cap = access.sizeCapMb(); const effective = getSizeLimitMb(); return cap === null ? effective : Math.min(effective, cap); };
+  /** Real (non-sample) documents saved so far: what the Basic limit counts. */
+  const countDocuments = async () => Number((await db.all('SELECT COUNT(*) AS n FROM documents WHERE is_demo = 0;'))[0].n);
   async function requireCategory(categoryId) {
     const rows = await db.all('SELECT id FROM categories WHERE id = ?;', [categoryId]);
     if (!rows.length) throw new DocumentError('INVALID_CATEGORY', 'Unknown category.');
@@ -247,12 +253,13 @@ export function createDocumentService({ db, storage, picker, viewer, camera, sha
     /** file: { name, mimeType, size, data(base64) } */
     async importFile(categoryId, file, displayName) {
       await requireCategory(categoryId);
+      access.assertCanCreateDocument(await countDocuments()); // early, before anything is written
       const ext = extensionOf(file?.name);
       if (!SUPPORTED_TYPES[ext]) throw new DocumentError('UNSUPPORTED_TYPE', `Unsupported file type ".${ext || '?'}".`);
       if (!file.data) throw new DocumentError('EMPTY_FILE', 'The selected file has no content.');
       // Final persistence boundary: whatever path the file came from, its real size is judged here against the limit in force now.
       const actualSize = byteLengthOfBase64(file.data);
-      enforceSize(Math.max(actualSize, Number.isFinite(file.size) ? file.size : 0), file.source === 'camera' ? 'capture' : 'file');
+      enforceSize(Math.max(actualSize, Number.isFinite(file.size) ? file.size : 0), file.source === 'camera' ? 'capture' : 'file', { limitMb: limitMb() });
       const name = validateName(displayName ?? file.name.replace(/\.[^.]+$/, ''));
       const id = uuid();
       const filePath = `${DOCS_DIR}/${id}.${ext}`; // collision-resistant; duplicate display names are fine
@@ -266,10 +273,13 @@ export function createDocumentService({ db, storage, picker, viewer, camera, sha
       }
       try {
         const ts = now();
-        await db.transaction(() => db.run(
-          `INSERT INTO documents (category_id, name, original_filename, file_type, mime_type, file_path, file_size, created_at, updated_at, thumb_path)
-           VALUES (?,?,?,?,?,?,?,?,?,?);`,
-          [categoryId, name, file.name, ext, SUPPORTED_TYPES[ext], filePath, actualSize, ts, ts, thumbPath]));
+        await db.transaction(async () => {
+          access.assertCanCreateDocument(await countDocuments()); // authoritative: counted inside the same serialised transaction as the insert
+          await db.run(
+            `INSERT INTO documents (category_id, name, original_filename, file_type, mime_type, file_path, file_size, created_at, updated_at, thumb_path)
+             VALUES (?,?,?,?,?,?,?,?,?,?);`,
+            [categoryId, name, file.name, ext, SUPPORTED_TYPES[ext], filePath, actualSize, ts, ts, thumbPath]);
+        });
       } catch (err) {
         await storage.remove(filePath).catch(() => {}); // keep file system and DB consistent
         if (thumbPath) await storage.remove(thumbPath).catch(() => {});
@@ -279,33 +289,40 @@ export function createDocumentService({ db, storage, picker, viewer, camera, sha
       return toRecord(rows[0]);
     },
 
+    /** Throws EntitlementError('DOCUMENT_LIMIT') when the current plan cannot save another document. */
+    async assertCanCreateDocument() { access.assertCanCreateDocument(await countDocuments()); },
+    countDocuments,
+
     /** Step 1 of the upload flow: let the user pick a file. Returns null when cancelled. */
     async pickFile() {
       if (!picker) throw new DocumentError('NO_PICKER', 'File picking is not available on this platform.');
+      access.assertCanCreateDocument(await countDocuments()); // a full Basic account is told before the picker even opens
       const picked = await picker.pick();
       if (!picked) return null;
+      const opts = { limitMb: limitMb() };
       if (typeof picked.read !== 'function') { // adapter already read the data: validate what it returned
-        enforceSize(Math.max(byteLengthOfBase64(picked.data), Number.isFinite(picked.size) ? picked.size : 0), 'file');
+        enforceSize(Math.max(byteLengthOfBase64(picked.data), Number.isFinite(picked.size) ? picked.size : 0), 'file', opts);
         return picked;
       }
       // Lazy picker (Android): the size reported by the provider is checked BEFORE a single byte is read or copied.
-      if (picked.size > 0) enforceSize(picked.size, 'file');
-      const res = await picked.read({ maxBytes: sizeLimitBytes() });
-      if (res.tooLarge) enforceSize(res.size, 'file', { atLeast: res.atLeast });
-      enforceSize(res.size, 'file'); // the bytes actually received, in case the provider's metadata was wrong
+      if (picked.size > 0) enforceSize(picked.size, 'file', opts);
+      const res = await picked.read({ maxBytes: sizeLimitBytes(opts.limitMb) });
+      if (res.tooLarge) enforceSize(res.size, 'file', { ...opts, atLeast: res.atLeast });
+      enforceSize(res.size, 'file', opts); // the bytes actually received, in case the provider's metadata was wrong
       return { name: picked.name, mimeType: picked.mimeType, size: res.size, data: res.data };
     },
 
     /** Camera capture (step 1 of the capture flow). Returns a file-like object, or null when cancelled. */
     async capturePhoto() {
       if (!camera) throw new DocumentError('NO_CAMERA', 'The camera is not available on this platform.');
+      access.assertCanCreateDocument(await countDocuments()); // no point opening the camera when the photo could not be saved
       const shot = await camera.capture();
       if (!shot) return null;
       const d = new Date(now());
       const p = (n) => String(n).padStart(2, '0');
       const stamp = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
       const size = byteLengthOfBase64(shot.data);
-      enforceSize(size, 'capture'); // the final image, checked again here (the adapter checks the file before reading it)
+      enforceSize(size, 'capture', { limitMb: limitMb() }); // the final image, checked again here (the adapter checks the file before reading it)
       return { name: `Captured_${stamp}.jpg`, mimeType: 'image/jpeg', size, data: shot.data, source: 'camera' };
     },
 
