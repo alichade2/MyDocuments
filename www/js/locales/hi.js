@@ -268,6 +268,7 @@ export default {
   'plan.title': 'MyDocs प्लान',
   'plan.basic': 'बेसिक',
   'plan.pro': 'प्रो',
+  'plan.usage': '{max} में से {used} दस्तावेज़ उपयोग में, {left} बचे हैं। हर एक अधिकतम 3 MB।',
   'plan.descBasic': 'अधिकतम 5 दस्तावेज़, हर एक 3 MB तक। ज़्यादा के लिए अपग्रेड करें।',
   'plan.descProLifetime': 'MyDocs प्रो हमेशा के लिए अनलॉक है।',
   'plan.descProUntil': 'MyDocs प्रो {date} तक सक्रिय है।',

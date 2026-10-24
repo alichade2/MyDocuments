@@ -881,7 +881,7 @@ let theme = loadTheme();
 
 function renderSettings(info = settingsInfo) {
   settingsInfo = info;
-  const sections = buildSettingsSections({ ...info, theme, appLock: appLock.enabled, sizeLimitMb: getSizeLimitMb(), plan: planInfo(), formatDate: formatPlanDate, languageName: t(`lang.name.${getLanguage()}`) });
+  const sections = buildSettingsSections({ ...info, theme, appLock: appLock.enabled, sizeLimitMb: getSizeLimitMb(), plan: planInfo(), usage: planUsage(), formatDate: formatPlanDate, languageName: t(`lang.name.${getLanguage()}`) });
   $('settings-list').replaceChildren(...sections.map((sec) => el('section', { class: 'settings-section', 'aria-label': sec.title },
     el('h2', {}, sec.title),
     el('ul', { class: 'settings-rows' }, ...sec.rows.map((r) => {
@@ -1141,11 +1141,24 @@ function backendUrl() {
 
 const formatPlanDate = (ms) => new Date(ms).toLocaleDateString(getLanguage() === 'hi' ? 'hi-IN' : 'en-GB', { dateStyle: 'long' });
 
+let usedDocuments = null;
+/** Remaining Basic capacity for display: re-counted from the database when a screen that shows it opens or the plan changes. */
+function planUsage() {
+  if (usedDocuments === null || access.isPro()) return null;
+  const max = BASIC_LIMITS.maxDocuments;
+  return { used: usedDocuments, max, left: Math.max(0, max - usedDocuments) };
+}
+async function refreshUsage() {
+  try { usedDocuments = await service.countDocuments(); } catch { usedDocuments = null; }
+  renderSettings();
+  renderUpgradePage();
+}
+
 function planInfo() { return entitlements?.effective() ?? { plan: PLAN.BASIC, source: 'none', lifetime: false, expiresAt: null }; }
 
 function planTexts() {
   const p = planInfo();
-  if (p.plan !== PLAN.PRO) return { title: t('up.currentBasic'), desc: t('plan.descBasic') };
+  if (p.plan !== PLAN.PRO) return { title: t('up.currentBasic'), desc: planUsage() ? t('plan.usage', planUsage()) : t('plan.descBasic') };
   if (p.source === 'play') return { title: t('up.currentProPlay'), desc: t('plan.descProLifetime') };
   if (p.lifetime) return { title: t('up.currentProPromoLifetime'), desc: t('plan.descProLifetime') };
   return { title: t('up.currentProPromo'), desc: t('plan.descProUntil', { date: formatPlanDate(p.expiresAt) }) };
@@ -1276,6 +1289,7 @@ function openUpgradePage() {
   $('app-title').textContent = t('up.title');
   setUpStatus('');
   renderUpgradePage();
+  refreshUsage();
   loadUpgradeProduct();
   $('page-back').focus({ preventScroll: true });
 }
@@ -1659,6 +1673,7 @@ function openPage(name) {
 
 function openSettings() {
   openPage('settings');
+  refreshUsage();
   if (nav.page !== 'settings') return;
   $('settings-scroller').scrollTop = 0;
   $('page-back').focus({ preventScroll: true });

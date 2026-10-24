@@ -14,10 +14,10 @@ export const MENU_ITEMS = [
  * - later features add rows here (or whole sections) without touching the rendering code. Text is translated when built,
  * so call it again after a language change.
  */
-export function buildSettingsSections({ version = '', build = '', theme = 'light', appLock = false, languageName = '', sizeLimitMb = DEFAULT_SIZE_LIMIT_MB, plan = null, formatDate = (ms) => new Date(ms).toISOString().slice(0, 10) } = {}) {
+export function buildSettingsSections({ version = '', build = '', theme = 'light', appLock = false, languageName = '', sizeLimitMb = DEFAULT_SIZE_LIMIT_MB, plan = null, usage = null, formatDate = (ms) => new Date(ms).toISOString().slice(0, 10) } = {}) {
   const pro = plan === null ? true : plan.plan === 'pro';
   const versionText = version ? `${version}${build ? ` (${build})` : ''}` : t('set.unknown');
-  const planDescription = plan === null ? '' : !pro ? t('plan.descBasic') : plan.lifetime ? t('plan.descProLifetime') : t('plan.descProUntil', { date: formatDate(plan.expiresAt) });
+  const planDescription = plan === null ? '' : !pro ? (usage ? t('plan.usage', usage) : t('plan.descBasic')) : plan.lifetime ? t('plan.descProLifetime') : t('plan.descProUntil', { date: formatDate(plan.expiresAt) });
   return [
     ...(plan === null ? [] : [{ id: 'plan', title: t('plan.title'), rows: [
       { id: 'plan', label: t('plan.title'), description: planDescription, icon: 'premium', value: pro ? t('plan.pro') : t('plan.basic'), action: 'upgrade' },

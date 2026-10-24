@@ -268,6 +268,7 @@ export default {
   'plan.title': 'MyDocs Plan',
   'plan.basic': 'Basic',
   'plan.pro': 'Pro',
+  'plan.usage': '{used} of {max} documents used, {left} left. Maximum 3 MB each.',
   'plan.descBasic': 'Up to 5 documents, 3 MB each. Upgrade for more.',
   'plan.descProLifetime': 'MyDocs Pro is unlocked permanently.',
   'plan.descProUntil': 'MyDocs Pro is active until {date}.',
