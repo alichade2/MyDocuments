@@ -21,7 +21,7 @@ export const BACKEND_URL = 'https://mydocs-api.example.com';
 export const PLAY_VERIFY_MODE = 'client';
 
 /** Base64 RSA public key of your app (Play Console > Monetize > Monetization setup > Licensing). Optional; public, not a secret. */
-export const PLAY_LICENSE_KEY = '';
+export const PLAY_LICENSE_KEY = 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4w8/liTZSrSV7shwNn+jnmmAhRqJCs4NWdlUe/50puI2kqtEIPzKM3TTMJkiC7pSDeKZXQ6n6kmLvZ/OvJOTpEm0HO4A6HCnR76w6cUydMHmntVq8ufXMFRfTVPduXDYklRganKcHlji9zLdqKUd+lT1Cegy7rjHf1TXQ9K8UGq5r37RWzyF6qeD/vX8QMw1M6Or2IIMb2VbzILLtI0fwe2OoRttDtk33JQvjbz5mRCv7dLIChESkZp0qo8xpYuSre+HhYoX2bjZuxr1xlDIsksKPHq2qR3wk5Gxz2YJa1SicOLhGEcZggjA9pZ+nSzXq2Tn5hNYQoQqWSbwI1WYhQIDAQAB';
 
 /** Offline grace: a Play purchase checked only by the client counts as verified for this many days after the last successful check. */
 export const PLAY_GRACE_DAYS = 30;
