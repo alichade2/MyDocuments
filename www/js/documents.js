@@ -468,6 +468,11 @@ export function createDocumentService({ db, storage, picker, viewer, camera, sha
     },
 
     /** Removes orphan files (e.g. from interrupted imports) and reports records with missing files. */
+    /** MyDocs ships without sample documents: removes the built-in sample entries (is_demo) that earlier versions created. Real documents are never touched. */
+    async removeSamples() {
+      await db.run('DELETE FROM documents WHERE is_demo = 1;');
+    },
+
     async reconcile() {
       const known = new Set((await db.all('SELECT file_path FROM documents WHERE file_path IS NOT NULL;')).map((r) => r.file_path));
       let orphansRemoved = 0;

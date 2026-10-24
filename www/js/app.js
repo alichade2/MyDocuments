@@ -1794,10 +1794,11 @@ async function init() {
   await setupEntitlements(isNativePlatform() ? globalThis.Capacitor?.Plugins?.PlayBilling : createMockPlayBilling());
   if (isNativePlatform()) {
     wireBackButton();
-    const db = createDatabase(capacitorSqliteDriver());
+    const db = createDatabase(capacitorSqliteDriver(), { seedSamples: false });
     await db.init();
     const { storage, picker, viewer, camera, sharer } = capacitorAdapters(undefined, (fn) => appLock.external(fn));
     service = createDocumentService({ db, storage, picker, viewer, camera, sharer, thumbnailer: createThumbnail, access });
+    await service.removeSamples();
     await service.reconcile();
     backupFiles = nativeBackupAdapters(undefined, (fn) => appLock.external(fn));
     await backupFiles.cleanup(); // temporary backup / restore files left by an earlier run
@@ -1809,7 +1810,7 @@ async function init() {
     globalThis.__mydocsBackup = backup; // device testing aids (not used by the app itself)
     globalThis.__mydocsService = service;
   } else {
-    service = createMockService({ access });
+    service = createMockService({ access, samples: false });
     ({ backup, native: backupFiles, drive } = createMockBackup({ access }));
     globalThis.__mydocsEntitlements = entitlements; // browser preview only: lets tests inspect / reset the plan
     globalThis.__mydocsPreview = service; // browser preview only: lets tests inspect the in-memory ZIP

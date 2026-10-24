@@ -29,14 +29,14 @@ function previewData() {
   return 'AAAA'.repeat(Math.ceil(n / 3)).slice(0, Math.ceil(n / 3) * 4); // decodes to ~n bytes
 }
 
-export function createMockService({ access = UNRESTRICTED_ACCESS } = {}) {
+export function createMockService({ access = UNRESTRICTED_ACCESS, samples = true } = {}) {
   const categories = CATEGORIES.map((c, i) => ({ id: i + 1, slug: c.slug, name: c.name, icon: c.icon, sort_order: i + 1, is_custom: 0, created_at: '2026-01-01T00:00:00.000Z' }));
   const idBySlug = new Map(categories.map((c) => [c.slug, c.id]));
   let nextId = 1;
   let shots = 0;
   const full = new Map(); // id -> data URL
   const thumbs = new Map();
-  let docs = demoDocuments().map((d) => ({
+  let docs = (samples ? demoDocuments() : []).map((d) => ({
     id: nextId++, categoryId: idBySlug.get(d.categorySlug), name: d.name, originalFilename: d.filename, fileType: 'pdf',
     mimeType: 'application/pdf', filePath: null, fileSize: null, createdAt: d.ts, updatedAt: d.ts, expiryDate: null, isDemo: true, missing: false, thumbPath: null,
   }));

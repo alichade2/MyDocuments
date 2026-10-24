@@ -105,7 +105,8 @@ async function seedDemoDocuments(driver) {
   }
 }
 
-export function createDatabase(driver) {
+/** @param {{seedSamples?: boolean}} [options] the app passes seedSamples:false (no sample documents); the default keeps the sample fixtures the tests rely on */
+export function createDatabase(driver, { seedSamples = true } = {}) {
   let ready = null;
 
   async function migrate() {
@@ -122,7 +123,7 @@ export function createDatabase(driver) {
         await driver.exec(MIGRATIONS[version]);
         if (next === 2) {
           await seedCategories(driver, { checkCustomClashes: false });
-          await seedDemoDocuments(driver);
+          if (seedSamples) await seedDemoDocuments(driver);
         }
         await driver.exec(`PRAGMA user_version = ${next};`);
       });

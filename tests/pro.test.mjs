@@ -641,7 +641,7 @@ test('app wiring: services get the access policy; Settings / Backup / size optio
   assert.match(app, /createDocumentService\(\{[^}]*access \}\)/);
   assert.match(app, /createBackupService\(\{[\s\S]*?access,/);
   assert.match(app, /createDriveClient\(\{ authorize: backupFiles\.authorizeDrive, access \}\)/);
-  assert.match(app, /createMockService\(\{ access \}\)/);
+  assert.match(app, /createMockService\(\{ access, samples: false \}\)/);
   assert.match(app, /setSizeCapMb\(access\.sizeCapMb\(\)\)/);
   assert.match(app, /err instanceof EntitlementError\) \{ showProPrompt/);
   assert.match(app, /access\.canUse\('backup'\)/);
@@ -654,3 +654,25 @@ test('app wiring: services get the access policy; Settings / Backup / size optio
 });
 
 test.after(() => cleanupTemp());
+
+test('no sample documents: a new install starts empty, older installs lose their samples, real documents stay', async () => {
+  const { createDatabase } = await import('../www/js/database.js');
+  const { createDocumentService } = await import('../www/js/documents.js');
+  const { createMockService } = await import('../www/js/mock.js');
+  const { nodeDriver, memStorage } = await import('./helpers/backup-env.mjs');
+  const fresh = createDatabase(nodeDriver(), { seedSamples: false });
+  await fresh.init();
+  assert.equal((await fresh.all('SELECT COUNT(*) AS n FROM documents;'))[0].n, 0);
+  const driver = nodeDriver();
+  const old = createDatabase(driver); // an install made by an earlier version: samples present
+  await old.init();
+  const svc = createDocumentService({ db: old, storage: memStorage() });
+  const cat = (await svc.listCategories())[0].id;
+  await svc.importFile(cat, pdf('mine.pdf'), 'Mine');
+  assert.equal((await svc.list()).length, 59);
+  await svc.removeSamples();
+  const left = await svc.list();
+  assert.deepEqual(left.map((d) => d.name), ['Mine']);
+  assert.equal((await createMockService({ samples: false }).list()).length, 0);
+  assert.match(read('www/js/app.js'), /seedSamples: false/);
+});
